@@ -276,6 +276,22 @@ export class Store {
     this.bus.emit("presence");
   }
 
+  /** Record that the agent was handed these user events. Kept as an event so the browser hears it live and it survives restarts. */
+  markRead(reviewId: string, events: ReviewEvent[]) {
+    if (events.length === 0) return;
+    const through = events.reduce((latest, e) => (e.at > latest ? e.at : latest), events[0]!.at);
+    this.emit(reviewId, "agent.read", "system", { through });
+    // A wait that returns at once never joined as a waiter, so nothing else marks the agent as here.
+    this.touchAgent();
+  }
+
+  readThrough(reviewId: string): string | null {
+    const row = this.db
+      .prepare("SELECT json_extract(payload, '$.through') AS through FROM events WHERE review_id = ? AND type = 'agent.read' ORDER BY id DESC LIMIT 1")
+      .get(reviewId) as { through: string } | undefined;
+    return row?.through ?? null;
+  }
+
   presence(): Presence {
     const recent = this.lastAgentActivity && Date.now() - Date.parse(this.lastAgentActivity) < 90_000;
     return { agent: this.waiters > 0 ? "listening" : recent ? "working" : "away", lastAgentActivity: this.lastAgentActivity };
@@ -293,6 +309,7 @@ export class Store {
       notes: this.notes(reviewId),
       presence: this.presence(),
       cursor: this.cursor(reviewId),
+      readThrough: this.readThrough(reviewId),
     };
   }
 

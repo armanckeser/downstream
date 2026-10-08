@@ -2,7 +2,8 @@
 // The agent hears what's written here through `downstream wait`.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Check, RotateCcw, X } from "lucide-react";
-import type { Note, Severity } from "@domain/model.ts";
+import type { Note, Presence, Severity } from "@domain/model.ts";
+import { delivery, type Delivery } from "@domain/delivery.ts";
 import { action } from "../lib/api.ts";
 import { useReview } from "../lib/review.tsx";
 import { displayName, severityRank } from "../lib/graph.ts";
@@ -100,7 +101,7 @@ function Group({ label, notes, folded = false }: { label: string | null; notes: 
 }
 
 function Thread({ note }: { note: Note }) {
-  const { noteId, openNote, index } = useReview();
+  const { noteId, openNote, index, state, presence } = useReview();
   const hover = useHover();
   const open = noteId === note.id;
   const ref = useRef<HTMLLIElement>(null);
@@ -108,6 +109,7 @@ function Thread({ note }: { note: Note }) {
   const agent = note.author === "agent";
   const lastAuthor = note.replies.at(-1)?.author ?? note.author;
   const yourTurn = note.status === "open" && lastAuthor === "agent" && (note.kind === "question" || note.replies.length > 0);
+  const standing = delivery(note, state?.readThrough ?? null, presence);
 
   useEffect(() => {
     if (open) ref.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -134,18 +136,52 @@ function Thread({ note }: { note: Note }) {
             <span className="ml-auto flex shrink-0 items-center gap-2">
               {goesOut(note) && <span className="font-mono text-2xs text-ink-3" title="Goes to the pull request">→ PR</span>}
               {yourTurn && <span className="font-mono text-2xs text-agent">your turn</span>}
+              {standing && <span className={`font-mono text-2xs ${DELIVERY_TAG[standing].tone}`}>{DELIVERY_TAG[standing].label}</span>}
             </span>
           </span>
           <span className={`mt-0.5 block text-[13.5px] leading-snug ${note.status === "open" ? "text-ink" : "text-ink-3 line-through decoration-ink-4"}`}>{note.title}</span>
         </span>
         {!open && note.replies.length > 0 && <span className="mt-0.5 font-mono text-2xs text-ink-3">{note.replies.length}</span>}
       </button>
-      {open && <ThreadBody note={note} />}
+      {open && <ThreadBody note={note} standing={standing} presence={presence} />}
     </li>
   );
 }
 
-function ThreadBody({ note }: { note: Note }) {
+const DELIVERY_TAG: Record<Delivery, { label: string; tone: string }> = {
+  unread: { label: "unread", tone: "text-ink-3" },
+  answering: { label: "answering…", tone: "text-agent" },
+  read: { label: "read", tone: "text-ink-3" },
+  stalled: { label: "stalled", tone: "text-del" },
+};
+
+/** The line under your last message: did the agent get it, and is it doing anything about it. */
+function DeliveryLine({ standing, presence }: { standing: Delivery; presence: Presence }) {
+  const wait = <code className="font-mono text-ink-2">downstream wait</code>;
+  const text =
+    standing === "answering" ? (
+      "The agent has this and is working on it."
+    ) : standing === "read" ? (
+      "The agent read this."
+    ) : standing === "stalled" ? (
+      "The agent read this, then stopped before replying. Check its terminal."
+    ) : presence.agent === "listening" ? (
+      "Sending to the agent…"
+    ) : presence.agent === "working" ? (
+      <>The agent is busy. It reads this when it next runs {wait}.</>
+    ) : (
+      <>No agent is listening. It reads this on its next {wait}.</>
+    );
+  const dot = standing === "answering" ? "bg-agent motion-safe:animate-pulse" : standing === "stalled" ? "bg-del" : standing === "read" ? "bg-agent/50" : "bg-ink-4";
+  return (
+    <p className="mt-2.5 flex items-center gap-1.5 text-[12px] text-ink-3" role="status">
+      <span className={`size-1.5 shrink-0 rounded-full ${dot}`} />
+      <span>{text}</span>
+    </p>
+  );
+}
+
+function ThreadBody({ note, standing, presence }: { note: Note; standing: Delivery | null; presence: Presence }) {
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -209,6 +245,7 @@ function ThreadBody({ note }: { note: Note }) {
           ))}
         </ol>
       )}
+      {standing && <DeliveryLine standing={standing} presence={presence} />}
       <ForAuthor note={note} />
       <div className="mt-3">
         <label className="sr-only" htmlFor={`reply-${note.id}`}>
@@ -306,12 +343,12 @@ function Composer() {
 
   const presenceText =
     presence.agent === "listening" ? (
-      "The agent is listening and will answer here."
+      "The agent is listening."
     ) : presence.agent === "working" ? (
-      "The agent is working. It'll see this when it next checks in."
+      "The agent is working."
     ) : (
       <>
-        The agent isn't listening. It reads this on its next <code className="font-mono text-ink-2">downstream wait</code>.
+        No agent is listening. Ask it to run <code className="font-mono text-ink-2">downstream wait</code>.
       </>
     );
 

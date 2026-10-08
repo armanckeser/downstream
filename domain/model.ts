@@ -199,6 +199,8 @@ export type ReviewState = {
   notes: Note[];
   presence: Presence;
   cursor: number;
+  /** The newest user message `downstream wait` has handed to the agent; anything at or before it, the agent has read. */
+  readThrough: string | null;
 };
 
 /** Is the agent in the room? `listening` = a `downstream wait` is blocked on the user. */

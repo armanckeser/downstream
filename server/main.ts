@@ -166,7 +166,10 @@ app.get("/api/wait", async (c) => {
   const timeout = Math.min(Number(c.req.query("timeout") ?? 600), 3600) * 1000;
   const pending = () => store.events(id, after, "user").filter((e) => LISTEN_TO.has(e.type));
   const ready = pending();
-  if (ready.length) return c.json({ events: ready, cursor: store.cursor(id), timedOut: false });
+  if (ready.length) {
+    store.markRead(id, ready);
+    return c.json({ events: ready, cursor: store.cursor(id), timedOut: false });
+  }
 
   store.waiterJoined();
   try {
@@ -188,6 +191,7 @@ app.get("/api/wait", async (c) => {
       store.bus.on("event", onEvent);
       c.req.raw.signal.addEventListener("abort", onAbort);
     });
+    store.markRead(id, events);
     return c.json({ events, cursor: store.cursor(id), timedOut: events.length === 0 });
   } finally {
     store.waiterLeft();

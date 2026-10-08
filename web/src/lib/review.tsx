@@ -140,6 +140,13 @@ export function ReviewProvider({ children }: { children: ReactNode }) {
       change: (e) => {
         if (e.type === "navigate") return applyNavigate(e.payload as NavigateCommand);
         if (e.type === "review.reanalyzed" || e.type === "review.opened") setVersion((v) => v + 1);
+        // Applied now, not on the debounced refresh, so a just-read message never flashes as unread.
+        // The agent has left its wait to handle what it read; the presence event confirms it after.
+        if (e.type === "agent.read") {
+          const { through } = e.payload as { through: string };
+          setState((s) => (s ? { ...s, readThrough: through } : s));
+          setPresence((p) => ({ ...p, agent: "working" }));
+        }
         if (e.actor === "agent") setLastAgentEvent(e);
         clearTimeout(timer);
         timer = setTimeout(refresh, 120);
