@@ -39,3 +39,41 @@ export function windowAround(frame: ParsedFrame, line: number, side: "new" | "ol
 }
 
 export const languageOf = (file: string) => file.split(".").pop() ?? "";
+
+/** Several windows of one frame as a multi-hunk patch; Pierre draws a separator between them. */
+export function buildHunks(frame: ParsedFrame, groups: Row[][]): string {
+  const body: string[] = [];
+  for (const rows of groups) {
+    if (!rows.length) continue;
+    const firstOld = rows.find((r) => r.oldNo !== null)?.oldNo ?? 0;
+    const firstNew = rows.find((r) => r.newNo !== null)?.newNo ?? 0;
+    const oldCount = rows.filter((r) => r.type !== "+").length;
+    const newCount = rows.filter((r) => r.type !== "-").length;
+    body.push(`@@ -${oldCount ? firstOld : 0},${oldCount} +${newCount ? firstNew : 0},${newCount} @@`, ...rows.map((r) => r.type + r.text));
+  }
+  return [...frame.header, ...body].join("\n") + "\n";
+}
+
+/** Keep what a reviewer needs from a long symbol: its signature, every change, and the lines people pointed at. */
+export function foldFrame(frame: ParsedFrame, keepNew: Set<number>, radius = 3): { patch: string; hidden: number } {
+  const rows = frame.rows;
+  const keep = new Array<boolean>(rows.length).fill(false);
+  const mark = (i: number) => {
+    for (let j = Math.max(0, i - radius); j <= Math.min(rows.length - 1, i + radius); j++) keep[j] = true;
+  };
+  rows.forEach((r, i) => {
+    if (i < 2 || r.type !== " " || (r.newNo !== null && keepNew.has(r.newNo))) mark(i);
+  });
+  keep[rows.length - 1] = true;
+  const groups: Row[][] = [];
+  let cur: Row[] = [];
+  rows.forEach((r, i) => {
+    if (keep[i]) cur.push(r);
+    else if (cur.length) {
+      groups.push(cur);
+      cur = [];
+    }
+  });
+  if (cur.length) groups.push(cur);
+  return { patch: buildHunks(frame, groups), hidden: keep.filter((k) => !k).length };
+}

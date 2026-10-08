@@ -24,6 +24,24 @@ const DEFAULTS: ts.CompilerOptions = {
 
 const MAX_PROJECT_FILES = 4000;
 
+/** Disk outside the reviewed side (lib, node_modules) doesn't change during a review; probe it once. */
+const fsCache = {
+  files: new Map<string, boolean>(),
+  dirs: new Map<string, boolean>(),
+  subdirs: new Map<string, string[]>(),
+  real: new Map<string, string>(),
+  text: new Map<string, string | undefined>(),
+};
+function memo<T>(m: Map<string, T>, k: string, f: () => T): T {
+  if (m.has(k)) return m.get(k)!;
+  const v = f();
+  m.set(k, v);
+  return v;
+}
+export function clearFsCache() {
+  for (const m of Object.values(fsCache)) m.clear();
+}
+
 export class TsProject {
   readonly service: ts.LanguageService;
   private readonly declCache = new Map<string, { sf: ts.SourceFile; decls: Decl[] }>();
@@ -34,6 +52,7 @@ export class TsProject {
     private readonly source: FileSource,
     rootFiles: string[],
     configPath: string | null,
+    registry: ts.DocumentRegistry = ts.createDocumentRegistry(),
   ) {
     let options = DEFAULTS;
     let names = rootFiles.map((f) => this.abs(f));
@@ -57,15 +76,15 @@ export class TsProject {
       getCurrentDirectory: () => root,
       getCompilationSettings: () => options,
       getDefaultLibFileName: (o) => ts.getDefaultLibFilePath(o),
-      fileExists: (f) => this.readAbs(f) !== undefined,
+      fileExists: (f) => this.fileExists(f),
       readFile: (f) => this.readAbs(f),
       readDirectory: ts.sys.readDirectory,
-      directoryExists: ts.sys.directoryExists,
-      getDirectories: ts.sys.getDirectories,
-      realpath: ts.sys.realpath,
+      directoryExists: (d) => memo(fsCache.dirs, d, () => ts.sys.directoryExists(d)),
+      getDirectories: (d) => memo(fsCache.subdirs, d, () => ts.sys.getDirectories(d)),
+      realpath: (f) => memo(fsCache.real, f, () => ts.sys.realpath?.(f) ?? f),
       useCaseSensitiveFileNames: () => ts.sys.useCaseSensitiveFileNames,
     };
-    this.service = ts.createLanguageService(host, ts.createDocumentRegistry());
+    this.service = ts.createLanguageService(host, registry);
   }
 
   abs(rel: string): string {
@@ -79,17 +98,27 @@ export class TsProject {
   }
 
   /** Repo files come from the reviewed side; everything else (lib, node_modules) from disk. */
+  private fileExists(abs: string): boolean {
+    const rel = this.rel(abs);
+    if (rel !== null && this.source.label !== WORKTREE) return this.source.exists(rel) || memo(fsCache.files, abs, () => ts.sys.fileExists(abs));
+    return memo(fsCache.files, abs, () => ts.sys.fileExists(abs));
+  }
+
   private readAbs(abs: string): string | undefined {
     const rel = this.rel(abs);
     if (rel !== null && this.source.label !== WORKTREE) {
       const text = this.source.read(rel);
       if (text !== null) return text;
     }
-    try {
-      return existsSync(abs) ? readFileSync(abs, "utf8") : undefined;
-    } catch {
-      return undefined;
-    }
+    const load = () => {
+      try {
+        return existsSync(abs) ? readFileSync(abs, "utf8") : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    // Repo files in the working tree can change mid-review (fixes); only cache the rest.
+    return rel === null ? memo(fsCache.text, abs, load) : load();
   }
 
   program(): ts.Program {
@@ -157,6 +186,8 @@ export function findConfig(root: string, rel: string): string | null {
 export class TsProjects {
   private readonly byConfig = new Map<string, TsProject>();
   private readonly configOf = new Map<string, string>();
+  /** Shared so packages in one repo parse node_modules types once. */
+  private readonly registry = ts.createDocumentRegistry();
 
   constructor(
     private readonly root: string,
@@ -174,7 +205,7 @@ export class TsProjects {
     let project = this.byConfig.get(key);
     if (!project) {
       const seeds = this.seedFiles.filter((f) => isTsLike(f) && this.source.exists(f));
-      project = new TsProject(this.root, this.source, seeds.length ? seeds : [rel], key === "<none>" ? null : key);
+      project = new TsProject(this.root, this.source, seeds.length ? seeds : [rel], key === "<none>" ? null : key, this.registry);
       this.byConfig.set(key, project);
     }
     return project;

@@ -42,17 +42,43 @@ export function worktreeSource(root: string): FileSource {
   };
 }
 
+const PRELOAD = /\.(m|c)?(t|j)sx?$|\.json$/;
+
+/**
+ * Files at a commit. A type checker reads hundreds of files, and one `git show`
+ * each costs seconds, so source files are read up front in one `cat-file --batch`.
+ */
 export function refSource(root: string, ref: string): FileSource {
   const cache = new Map<string, string | null>();
-  let listing: Set<string> | null = null;
-  const files = () => (listing ??= new Set(git(root, ["ls-tree", "-r", "--name-only", ref]).split("\n").filter(Boolean)));
+  let blobs: Map<string, string> | null = null;
+  const tree = () => {
+    if (blobs) return blobs;
+    blobs = new Map();
+    for (const line of git(root, ["ls-tree", "-r", "-l", ref]).split("\n")) {
+      const m = line.match(/^\d+ blob ([0-9a-f]+)\s+(\d+|-)\t(.+)$/);
+      if (m) blobs.set(m[3]!, m[1]!);
+    }
+    const wanted = [...blobs].filter(([p]) => PRELOAD.test(p) && !p.includes("node_modules/"));
+    if (wanted.length) {
+      const out = execFileSync("git", ["cat-file", "--batch"], { cwd: root, input: wanted.map(([, sha]) => sha).join("\n") + "\n", maxBuffer: 1024 * 1024 * 1024 });
+      let at = 0;
+      for (const [p] of wanted) {
+        const nl = out.indexOf(10, at);
+        const size = Number(out.subarray(at, nl).toString("utf8").split(" ")[2]);
+        cache.set(p, out.subarray(nl + 1, nl + 1 + size).toString("utf8"));
+        at = nl + 1 + size + 1;
+      }
+    }
+    return blobs;
+  };
   return {
     label: ref,
     read(file) {
-      if (!cache.has(file)) cache.set(file, files().has(file) ? tryGit(root, ["show", `${ref}:${file}`]) : null);
+      const files = tree();
+      if (!cache.has(file)) cache.set(file, files.has(file) ? tryGit(root, ["show", `${ref}:${file}`]) : null);
       return cache.get(file) ?? null;
     },
-    exists: (file) => files().has(file),
+    exists: (file) => tree().has(file),
   };
 }
 

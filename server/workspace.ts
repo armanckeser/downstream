@@ -1,12 +1,13 @@
 // One review's view of the repository: both sides of the change, the flow
 // graph analysis, symbol frames for the UI, and IDE-grade hover.
 import ts from "typescript";
+import { execFileSync } from "node:child_process";
 import { structuredPatch } from "diff";
 import type { CodeSymbol, Range, Review } from "../domain/model.ts";
 import { diff, git, refSource, WORKTREE, worktreeSource, type FileSource, type Hunks } from "./analyze/git.ts";
 import { buildGraph, type Graph } from "./analyze/graph.ts";
 import { isTsLike } from "./analyze/ts-decls.ts";
-import { TsProjects } from "./analyze/ts-project.ts";
+import { clearFsCache, TsProjects } from "./analyze/ts-project.ts";
 import type { FileChange } from "../domain/model.ts";
 
 export type Frame = {
@@ -45,6 +46,7 @@ export class Workspace {
   }
 
   analyze(): { files: FileChange[]; graph: Graph } {
+    clearFsCache();
     if (this.review.mode === "diff") {
       const d = diff(this.root, this.review.baseSha ?? this.review.base ?? "HEAD", this.review.head);
       this.files = d.files;
@@ -215,7 +217,6 @@ function defaultBase(root: string): string {
   return "HEAD";
 }
 
-import { execFileSync } from "node:child_process";
 function execGh(cwd: string, args: string[]): string {
   return execFileSync("gh", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }

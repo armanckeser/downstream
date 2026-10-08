@@ -66,8 +66,8 @@ export function FlowMap() {
   const wrap = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number; vx: number; vy: number } | null>(null);
 
-  const { symbols, edges } = useMemo(() => {
-    if (!state) return { symbols: [], edges: [] };
+  const { symbols, edges, loose } = useMemo(() => {
+    if (!state) return { symbols: [], edges: [], loose: [] };
     const typeKinds = new Set(["type", "interface"]);
     let syms = state.symbols.filter((s) => (showContext || s.status !== "context") && (showTypes || !typeKinds.has(s.kind)));
     const ids = new Set(syms.map((s) => s.id));
@@ -75,7 +75,10 @@ export function FlowMap() {
     // Drop unchanged symbols that ended up with nothing to connect to.
     const linked = new Set(es.flatMap((e) => [e.from, e.to]));
     syms = syms.filter((s) => s.status !== "context" || linked.has(s.id));
-    return { symbols: syms, edges: es };
+    // Changed things with no relationships (constants, tests, migrations) sit on a shelf, not in the flow.
+    const loose = syms.filter((s) => !linked.has(s.id) && !s.entry);
+    const looseIds = new Set(loose.map((s) => s.id));
+    return { symbols: syms.filter((s) => !looseIds.has(s.id)), edges: es, loose };
   }, [state, showContext, showTypes]);
 
   const laid = useMemo(() => layout(symbols, edges), [symbols, edges]);
@@ -84,7 +87,7 @@ export function FlowMap() {
     const el = wrap.current;
     if (!el) return;
     const k = Math.min(1.15, Math.min((el.clientWidth - 40) / laid.width, (el.clientHeight - 40) / laid.height));
-    setView({ k, x: (el.clientWidth - laid.width * k) / 2, y: Math.max(20, (el.clientHeight - laid.height * k) / 2) });
+    setView({ k, x: (el.clientWidth - laid.width * k) / 2, y: Math.max(48, (el.clientHeight - laid.height * k) / 2) });
   };
   useEffect(fit, [laid]);
 
@@ -232,6 +235,27 @@ export function FlowMap() {
           </g>
         </svg>
       </div>
+
+      {loose.length > 0 && (
+        <div className="absolute left-4 top-3 flex max-w-[calc(100%-2rem)] flex-wrap items-center gap-1.5">
+          <span className="eyebrow mr-1">Also changed</span>
+          {loose.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => openSymbol(s.id)}
+              onPointerEnter={(e) => hover.show(e.currentTarget.getBoundingClientRect(), { type: "symbol", id: s.id })}
+              onPointerLeave={hover.hide}
+              className="press flex items-center gap-1.5 rounded-md border border-line-subtle bg-pane/90 px-2 py-0.5 hover:border-line"
+            >
+              <svg width="10" height="10" viewBox="-5 -5 10 10">
+                <NodeMark status={s.status} />
+              </svg>
+              <span className="font-mono text-[11.5px] text-ink-2">{displayName(s)}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="pointer-events-none absolute inset-x-4 bottom-4 flex flex-wrap items-end justify-between gap-3">
         <div className="pointer-events-auto flex items-center gap-1 rounded-lg border border-line bg-pane/95 p-1 backdrop-blur">

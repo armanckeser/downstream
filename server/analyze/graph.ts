@@ -51,6 +51,7 @@ function ownChanges(d: Decl, ranges: Range[]): number {
 }
 
 export function buildGraph(input: GraphInput): Graph {
+  const lap = timer();
   const symbols = new Map<string, CodeSymbol>();
   const edges = new Map<string, Edge>();
   const projects = new TsProjects(input.root, input.newSrc, input.files.filter((f) => f.status !== "deleted").map((f) => f.path));
@@ -114,6 +115,7 @@ export function buildGraph(input: GraphInput): Graph {
     }
   }
 
+  lap("symbols");
   // 2. Outgoing edges through the checker; context symbols for what changed code calls.
   const ensureContext = (project: TsProject, rel: string, decl: Decl): string => {
     const id = symbolId(rel, decl.key);
@@ -194,6 +196,7 @@ export function buildGraph(input: GraphInput): Graph {
     ts.forEachChild(live.node, visit);
   }
 
+  lap("outgoing");
   // 3. Callers: who reaches the changed code from outside it.
   if (input.mode === "diff") {
     for (const { file, decl, symbol } of changedDecls) {
@@ -257,6 +260,7 @@ export function buildGraph(input: GraphInput): Graph {
     }
   }
 
+  lap("callers+removed");
   // 5. Doors: changed symbols nothing else in the change calls.
   const all = [...symbols.values()];
   const changed = new Set(all.filter((s) => s.status !== "context").map((s) => s.id));
@@ -332,4 +336,12 @@ function moduleSymbol(f: FileChange, hunks: Hunks, input: GraphInput): [string, 
       changedLines: f.additions + f.deletions,
     },
   ];
+}
+
+function timer() {
+  let t = performance.now();
+  return (label: string) => {
+    if (process.env.DS_DEBUG) console.error(`[graph] ${label}: ${Math.round(performance.now() - t)}ms`);
+    t = performance.now();
+  };
 }

@@ -8,7 +8,7 @@ import type { CodeSymbol, Edge, Note } from "@domain/model.ts";
 import { action, fetchDefinition, fetchFrame, type Frame as FrameData } from "../lib/api.ts";
 import { useReview } from "../lib/review.tsx";
 import { displayName } from "../lib/graph.ts";
-import { buildPatch, parseFrame, windowAround } from "../lib/patch.ts";
+import { buildPatch, foldFrame, parseFrame, windowAround } from "../lib/patch.ts";
 import { useHover } from "./hover.tsx";
 import { EdgeMark, KindTag, NoteKindTag, SeverityMark, StatusMark } from "./marks.tsx";
 import { Markdown } from "./markdown.tsx";
@@ -34,6 +34,7 @@ export function FrameView({ symbol, next, compact, onToggleCompact, onClose, fir
   const [data, setData] = useState<FrameData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     let live = true;
@@ -68,11 +69,19 @@ export function FrameView({ symbol, next, compact, onToggleCompact, onClose, fir
 
   const removed = symbol.status === "removed";
   const parsed = useMemo(() => (data ? parseFrame(data.patch) : null), [data]);
-  const patch = useMemo(() => {
-    if (!data || !parsed) return null;
-    if (!compact || !nextEdge?.line) return data.patch;
-    return buildPatch(parsed, windowAround(parsed, nextEdge.line, nextEdge.change === "removed" ? "old" : "new"));
-  }, [data, parsed, compact, nextEdge]);
+  const big = (parsed?.rows.length ?? 0) > 60;
+  const { patch, hidden } = useMemo(() => {
+    if (!data || !parsed) return { patch: null, hidden: 0 };
+    if (compact && nextEdge?.line) return { patch: buildPatch(parsed, windowAround(parsed, nextEdge.line, nextEdge.change === "removed" ? "old" : "new")), hidden: 0 };
+    if (!big || showAll) return { patch: data.patch, hidden: 0 };
+    const keep = new Set<number>();
+    for (const e of outgoing) if (e.line != null) keep.add(e.line);
+    for (const n of notes) if (n.lines) for (let l = n.lines.start; l <= n.lines.end; l++) keep.add(l);
+    const want = focus?.symbolId === symbol.id ? focus.lines : null;
+    if (want) for (let l = want.start; l <= want.end; l++) keep.add(l);
+    if (selection?.symbolId === symbol.id) for (let l = selection.lines.start; l <= selection.lines.end; l++) keep.add(l);
+    return foldFrame(parsed, keep);
+  }, [data, parsed, compact, nextEdge, big, showAll, outgoing, notes, focus, selection, symbol.id]);
 
   const lineNotes = notes.filter((n) => n.lines);
   const looseNotes = notes.filter((n) => !n.lines && n.kind !== "question");
@@ -142,6 +151,11 @@ export function FrameView({ symbol, next, compact, onToggleCompact, onClose, fir
           )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {big && !compact && (hidden > 0 || showAll) && (
+            <button type="button" onClick={() => setShowAll((v) => !v)} className="press rounded-md px-2 py-1 font-mono text-2xs text-ink-3 hover:bg-overlay hover:text-ink">
+              {showAll ? "fold unchanged" : `show ${hidden} hidden lines`}
+            </button>
+          )}
           {nextEdge?.line && (
             <button type="button" onClick={onToggleCompact} className="press rounded-md p-1.5 text-ink-3 hover:bg-overlay hover:text-ink" title={compact ? "Show the whole symbol" : "Collapse to the call"}>
               {compact ? <ChevronsUpDown size={14} /> : <ChevronsDownUp size={14} />}
