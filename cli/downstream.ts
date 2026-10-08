@@ -11,6 +11,8 @@ import { severityLabel, type CodeSymbol, type Edge, type Note, type ReviewEvent,
 const skillDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
 const cmd = argv[0] ?? "help";
+// Under the 300s headers timeout of Node's fetch.
+const WAIT_CHUNK_SECONDS = 240;
 
 function flags(list: string[]) {
   const pos: string[] = [];
@@ -486,7 +488,14 @@ async function main() {
     case "wait": {
       const after = existsSync(cursorFile) ? Number(readFileSync(cursorFile, "utf8")) || 0 : 0;
       const timeout = Number(str("timeout") ?? 600);
-      const res = await get<{ events: ReviewEvent[]; cursor: number; timedOut: boolean }>(`/api/wait?after=${after}&timeout=${timeout}`);
+      // Node's fetch gives up on a response whose headers take longer than 300s, so a
+      // long wait is a series of shorter ones from the same cursor.
+      const deadline = Date.now() + timeout * 1000;
+      let res: { events: ReviewEvent[]; cursor: number; timedOut: boolean };
+      do {
+        const chunk = Math.max(1, Math.min(WAIT_CHUNK_SECONDS, Math.ceil((deadline - Date.now()) / 1000)));
+        res = await get(`/api/wait?after=${after}&timeout=${chunk}`);
+      } while (res.timedOut && Date.now() < deadline);
       writeFileSync(cursorFile, String(res.cursor));
       if (res.timedOut) return console.log(`(no activity in ${timeout}s; the user may be reading. Run \`downstream wait\` again.)`);
       const state = await get<ReviewState>("/api/state");
