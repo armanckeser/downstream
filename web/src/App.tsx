@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Check } from "lucide-react";
+import { Check, RotateCw } from "lucide-react";
 import { action } from "./lib/api.ts";
 import { useReview, type View } from "./lib/review.tsx";
 import { Rail } from "./components/rail.tsx";
@@ -78,6 +78,7 @@ export function App() {
               agent: {agentVerdict.value === "changes" ? "requests changes" : agentVerdict.value}
             </span>
           )}
+          {review?.head === "WORKTREE" && <Reread />}
           <span className="hidden font-mono text-2xs text-ink-3 sm:inline">{openThreads} open</span>
           <VerdictButton current={myVerdict?.value ?? null} />
         </div>
@@ -171,6 +172,25 @@ function VerdictButton({ current }: { current: "approve" | "changes" | "comment"
         </div>
       )}
     </div>
+  );
+}
+
+/** Working-tree reviews can go stale as code is fixed; re-read keeps threads and the walkthrough. */
+function Reread() {
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={() => {
+        setBusy(true);
+        void action("review.reanalyze").finally(() => setBusy(false));
+      }}
+      className="press flex items-center gap-1.5 rounded-md px-2 py-1 font-mono text-2xs text-ink-3 hover:bg-overlay hover:text-ink disabled:opacity-50"
+      title="Re-read the working tree after edits"
+    >
+      <RotateCw size={12} className={busy ? "opacity-50" : ""} /> {busy ? "reading…" : "re-read"}
+    </button>
   );
 }
 

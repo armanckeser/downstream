@@ -6,5 +6,5 @@ p.on("pageerror", (e) => console.log("PAGEERR", e.message));
 await p.goto(url, { waitUntil: "networkidle" });
 if (door) { await p.locator("nav[aria-label='Ways in'] ul li button", { hasText: door }).first().click(); await p.waitForTimeout(1500); }
 if (key) { await p.keyboard.press(key); await p.waitForTimeout(1000); }
-await p.screenshot({ path: out });
+await p.screenshot({ path: out, fullPage: !!process.env.FULL });
 await b.close();

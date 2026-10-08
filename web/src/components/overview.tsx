@@ -19,6 +19,9 @@ export function Overview() {
   const questions = notes.filter((n) => n.kind === "question" && n.status === "open");
   const counts = (["added", "modified", "removed"] as const).map((k) => [k, changed.filter((s) => s.status === k).length] as const).filter(([, n]) => n > 0);
 
+  // The contracts this change introduces or alters: judge these before the code that fills them in.
+  const shapes = symbols.filter((s) => (s.kind === "interface" || s.kind === "type" || s.kind === "class") && (review.mode === "teach" ? s.exported : s.status !== "context"));
+
   const start = () => (steps[0] ? openStep(steps[0].id) : index.entries[0] ? openSymbol(index.entries[0].id) : undefined);
 
   return (
@@ -138,6 +141,56 @@ export function Overview() {
           )}
         </section>
       </div>
+      {shapes.length > 0 && (
+        <section className="mt-12">
+          <h2 className="eyebrow flex border-b border-line-subtle pb-2">
+            Shapes {review.mode === "teach" ? "it exposes" : "this change introduces or alters"}
+            <span className="ml-auto font-mono normal-case tracking-normal text-ink-4">{shapes.length}</span>
+          </h2>
+          <ul className="divide-y divide-line-subtle">
+            {shapes.map((s) => {
+              const users = (index.into.get(s.id) ?? []).length;
+              const choice = (index.notesBySymbol.get(s.id) ?? []).find((n) => n.kind === "decision" || n.kind === "why");
+              return (
+                <li key={s.id}>
+                  <button
+                    type="button"
+                    onClick={() => openSymbol(s.id)}
+                    onPointerEnter={(e) => hover.show(e.currentTarget.getBoundingClientRect(), { type: "symbol", id: s.id })}
+                    onPointerLeave={hover.hide}
+                    className="press grid w-full grid-cols-[minmax(0,1fr)_auto] gap-x-4 py-3 text-left"
+                  >
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-2">
+                        <StatusMark status={s.status} />
+                        <span className="font-mono text-[13px] text-ink">{s.name}</span>
+                        <span className="truncate font-mono text-2xs text-ink-3">{s.file}</span>
+                      </span>
+                      {s.signature && <pre className="mt-1.5 max-h-28 overflow-hidden whitespace-pre-wrap pl-[18px] font-mono text-[11.5px] leading-[18px] text-ink-3">{s.signature}</pre>}
+                      {choice && (
+                        <span className="mt-1.5 flex items-baseline gap-2 pl-[18px]">
+                          <NoteKindTag note={choice} />
+                          <span className="text-[12.5px] text-ink-2">{choice.title}</span>
+                        </span>
+                      )}
+                    </span>
+                    <span className="pt-0.5 font-mono text-2xs text-ink-3">
+                      {users ? (
+                        <>
+                          used by <span className="text-ink-2">{users}</span>
+                        </>
+                      ) : (
+                        "unused yet"
+                      )}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+
     </div>
   );
 }

@@ -60,6 +60,11 @@ function headText(sf: ts.SourceFile, from: ts.Node, body: ts.Node | undefined): 
   return text.length > 240 ? text.slice(0, 237) + "…" : text;
 }
 
+function clip(text: string, maxLines = 14): string {
+  const ls = text.split("\n");
+  return ls.length > maxLines ? ls.slice(0, maxLines).join("\n") + "\n  …" : text;
+}
+
 function blockText(sf: ts.SourceFile, node: ts.Node, maxLines = 14): string {
   const text = sf.text.slice(node.getStart(sf), node.getEnd());
   const ls = text.split("\n");
@@ -142,7 +147,7 @@ export function extractDecls(sf: ts.SourceFile): Decl[] {
         nameNode: st.name ?? null,
         range: lines(sf, st),
         exported,
-        signature: squash(sf.text.slice(st.getStart(sf), st.members.pos)).replace(/\s*\{$/, ""),
+        signature: clip(sf.text.slice(st.getStart(sf), st.members.pos).replace(/\s*\{\s*$/, "")),
         memberRanges: [],
       };
       out.push(decl);
