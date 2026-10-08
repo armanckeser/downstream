@@ -2,6 +2,7 @@
   "name": "downstream",
   "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "description": "Read a change downstream from its entry points, with the agent in the margin.",
   "type": "module",
   "bin": {
