@@ -15,6 +15,8 @@ type Laid = {
 };
 
 const NODE_H = 48;
+const MAX_NODES = 45;
+type Scope = "auto" | "walkthrough" | "around" | "all";
 const charW = 7.3;
 
 function layout(symbols: CodeSymbol[], edges: Edge[]): Laid {
@@ -66,10 +68,44 @@ export function FlowMap() {
   const wrap = useRef<HTMLDivElement>(null);
   const drag = useRef<{ x: number; y: number; vx: number; vy: number } | null>(null);
 
+  const big = (state?.symbols.length ?? 0) > MAX_NODES;
+  const curated = useMemo(() => {
+    const ids = new Set<string>();
+    for (const s of state?.symbols ?? []) if (s.summary || (s.entry && s.status !== "context")) ids.add(s.id);
+    for (const st of state?.steps ?? []) if (st.symbolId) ids.add(st.symbolId);
+    for (const n of state?.notes ?? []) if (n.symbolId) ids.add(n.symbolId);
+    return ids;
+  }, [state]);
+  const [scope, setScope] = useState<Scope>("auto");
+  const effective: Exclude<Scope, "auto"> = scope !== "auto" ? scope : !big ? "all" : curated.size >= 3 ? "walkthrough" : "around";
+  // Where "around" means: your current frame, else the busiest door.
+  const center = useMemo(() => {
+    if (trail.length) return trail.at(-1)!;
+    const busiest = [...(index?.entries ?? [])].sort((a, b) => (index?.out.get(b.id)?.length ?? 0) - (index?.out.get(a.id)?.length ?? 0))[0];
+    return busiest?.id ?? null;
+  }, [trail, index]);
+
   const { symbols, edges, loose } = useMemo(() => {
-    if (!state) return { symbols: [], edges: [], loose: [] };
+    if (!state || !index) return { symbols: [], edges: [], loose: [] };
     const typeKinds = new Set(["type", "interface"]);
-    let syms = state.symbols.filter((s) => (showContext || s.status !== "context") && (showTypes || !typeKinds.has(s.kind)));
+    let pool = state.symbols;
+    if (effective === "walkthrough") {
+      // The agent's chosen symbols plus whatever sits directly between two of them.
+      const keep = new Set(curated);
+      for (const e of state.edges) if (curated.has(e.from) && !curated.has(e.to) && (index.out.get(e.to) ?? []).some((x) => curated.has(x.to))) keep.add(e.to);
+      pool = pool.filter((s) => keep.has(s.id));
+    } else if (effective === "around" && center) {
+      const keep = new Set([center]);
+      let frontier = [center];
+      for (let hop = 0; hop < 2; hop++) {
+        const next: string[] = [];
+        for (const id of frontier) for (const e of index.out.get(id) ?? []) if (!keep.has(e.to)) (keep.add(e.to), next.push(e.to));
+        frontier = next;
+      }
+      for (const e of index.into.get(center) ?? []) keep.add(e.from);
+      pool = pool.filter((s) => keep.has(s.id));
+    }
+    let syms = pool.filter((s) => (showContext || s.status !== "context") && (showTypes || !typeKinds.has(s.kind)));
     const ids = new Set(syms.map((s) => s.id));
     const es = state.edges.filter((e) => ids.has(e.from) && ids.has(e.to) && (showTypes || e.kind !== "uses"));
     // Drop unchanged symbols that ended up with nothing to connect to.
@@ -79,15 +115,16 @@ export function FlowMap() {
     const loose = syms.filter((s) => !linked.has(s.id) && !s.entry);
     const looseIds = new Set(loose.map((s) => s.id));
     return { symbols: syms.filter((s) => !looseIds.has(s.id)), edges: es, loose };
-  }, [state, showContext, showTypes]);
+  }, [state, index, showContext, showTypes, effective, curated, center]);
 
   const laid = useMemo(() => layout(symbols, edges), [symbols, edges]);
 
   const fit = () => {
     const el = wrap.current;
     if (!el) return;
-    const k = Math.min(1.15, Math.min((el.clientWidth - 40) / laid.width, (el.clientHeight - 40) / laid.height));
-    setView({ k, x: (el.clientWidth - laid.width * k) / 2, y: Math.max(48, (el.clientHeight - laid.height * k) / 2) });
+    // Never shrink past legibility; pan instead.
+    const k = Math.max(0.55, Math.min(1.15, (el.clientWidth - 40) / laid.width, (el.clientHeight - 40) / laid.height));
+    setView({ k, x: Math.max(24, (el.clientWidth - laid.width * k) / 2), y: Math.max(48, (el.clientHeight - laid.height * k) / 2) });
   };
   useEffect(fit, [laid]);
 
@@ -114,7 +151,7 @@ export function FlowMap() {
   const neighbors = hot ? new Set([hot, ...(index.out.get(hot) ?? []).map((e) => e.to), ...(index.into.get(hot) ?? []).map((e) => e.from)]) : null;
   const onTrail = new Set(trail);
 
-  if (!symbols.length) {
+  if (!state.symbols.length) {
     return (
       <div className="mx-auto max-w-2xl px-6 py-16">
         <p className="eyebrow">Map</p>
@@ -177,7 +214,7 @@ export function FlowMap() {
               const findings = openFindings(index.notesBySymbol.get(s.id));
               const agentFindings = findings.filter((n) => n.author === "agent");
               const dim = neighbors && !neighbors.has(s.id);
-              const context = s.status === "context";
+              const context = s.status === "context" && state.review.mode === "diff";
               return (
                 <g
                   key={s.id}
@@ -236,6 +273,9 @@ export function FlowMap() {
         </svg>
       </div>
 
+      {symbols.length === 0 && (
+        <p className="absolute inset-x-0 top-1/3 text-center text-[13px] text-ink-3">Nothing connected in this scope. Try another one below.</p>
+      )}
       {loose.length > 0 && (
         <div className="absolute left-4 top-3 flex max-w-[calc(100%-2rem)] flex-wrap items-center gap-1.5">
           <span className="eyebrow mr-1">Also changed</span>
@@ -259,6 +299,14 @@ export function FlowMap() {
 
       <div className="pointer-events-none absolute inset-x-4 bottom-4 flex flex-wrap items-end justify-between gap-3">
         <div className="pointer-events-auto flex items-center gap-1 rounded-lg border border-line bg-pane/95 p-1 backdrop-blur">
+          {(big || scope !== "auto") && (
+            <>
+              <Toggle on={effective === "walkthrough"} onClick={() => setScope("walkthrough")} label="Walkthrough" />
+              <Toggle on={effective === "around"} onClick={() => setScope("around")} label={center && index.byId.get(center) ? `Around ${displayName(index.byId.get(center)!)}` : "Around here"} />
+              <Toggle on={effective === "all"} onClick={() => setScope("all")} label={`Everything ${state.symbols.length}`} />
+              <span className="mx-1 h-4 w-px bg-line" />
+            </>
+          )}
           <Toggle on={showContext} onClick={() => setShowContext((v) => !v)} label="Unchanged neighbors" />
           <Toggle on={showTypes} onClick={() => setShowTypes((v) => !v)} label="Types" />
           <button type="button" onClick={fit} className="press rounded-md p-1.5 text-ink-3 hover:bg-overlay hover:text-ink" title="Fit to view">

@@ -271,7 +271,7 @@ export function buildGraph(input: GraphInput): Graph {
     const incoming = [...edges.values()].filter(
       (e) => e.to === s.id && e.kind !== "uses" && e.change !== "removed" && (input.mode === "teach" || changed.has(e.from)),
     );
-    s.entry = incoming.length === 0 && (input.mode === "diff" || s.exported || s.kind === "route");
+    s.entry = incoming.length === 0 && s.name !== "constructor" && (input.mode === "diff" || s.exported || s.kind === "route");
   }
 
   return { symbols: all, edges: [...edges.values()] };
