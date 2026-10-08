@@ -185,15 +185,15 @@ export class Workspace {
 }
 
 /** Resolve what to compare. `--pr` asks gh for the base branch and fetches the head. */
-export function resolveTarget(root: string, opts: { base?: string; head?: string; pr?: number }): { base: string; baseSha: string; head: string } {
+export function resolveTarget(root: string, opts: { base?: string; head?: string; pr?: number }): { base: string; baseSha: string; head: string; title?: string } {
   if (opts.pr) {
     const info = JSON.parse(
-      execGh(root, ["pr", "view", String(opts.pr), "--json", "baseRefName,headRefOid"]),
-    ) as { baseRefName: string; headRefOid: string };
+      execGh(root, ["pr", "view", String(opts.pr), "--json", "baseRefName,headRefOid,title"]),
+    ) as { baseRefName: string; headRefOid: string; title: string };
     git(root, ["fetch", "--quiet", "origin", info.baseRefName, `pull/${opts.pr}/head`]);
     const head = info.headRefOid;
     const baseSha = git(root, ["merge-base", `origin/${info.baseRefName}`, head]).trim();
-    return { base: `origin/${info.baseRefName}`, baseSha, head };
+    return { base: `origin/${info.baseRefName}`, baseSha, head, title: `${info.title} (#${opts.pr})` };
   }
   const head = opts.head ?? WORKTREE;
   const base = opts.base ?? defaultBase(root);

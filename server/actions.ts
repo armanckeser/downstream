@@ -110,7 +110,7 @@ export const openReview = defineAction({
       const t = resolveTarget(ctx.root, input);
       review = {
         id,
-        title: input.title ?? defaultTitle(ctx.root, t.head, t.base, input.pr),
+        title: input.title ?? t.title ?? defaultTitle(ctx.root, t.head, t.base, input.pr),
         mode: "diff",
         base: t.base,
         baseSha: t.baseSha,

@@ -53,7 +53,7 @@ export function App() {
   const agentVerdict = review?.verdicts.find((v) => v.by === "agent");
 
   return (
-    <div className="grid min-h-[100dvh] grid-rows-[auto_1fr] lg:h-[100dvh]">
+    <div className="grid min-h-[100dvh] grid-cols-[minmax(0,1fr)] grid-rows-[auto_1fr] lg:h-[100dvh]">
       <header className="flex items-center gap-3 border-b border-line-subtle px-4 py-2">
         <Mark />
         <div className="min-w-0">
@@ -78,7 +78,7 @@ export function App() {
               agent: {agentVerdict.value === "changes" ? "requests changes" : agentVerdict.value}
             </span>
           )}
-          <span className="font-mono text-2xs text-ink-3">{openThreads} open</span>
+          <span className="hidden font-mono text-2xs text-ink-3 sm:inline">{openThreads} open</span>
           <VerdictButton current={myVerdict?.value ?? null} />
         </div>
       </header>
@@ -94,7 +94,7 @@ export function App() {
         <div className={`min-h-0 border-line-subtle lg:block lg:border-r ${pane === "rail" ? "block" : "hidden"}`}>
           <Rail />
         </div>
-        <main className={`min-h-0 overflow-y-auto lg:block ${pane === "main" ? "block" : "hidden"} ${view === "map" ? "h-[calc(100dvh-90px)] overflow-hidden lg:h-auto" : ""}`}>
+        <main className={`min-h-0 min-w-0 overflow-x-hidden overflow-y-auto lg:block ${pane === "main" ? "block" : "hidden"} ${view === "map" ? "h-[calc(100dvh-90px)] overflow-hidden lg:h-auto" : ""}`}>
           <div className="mb-1 flex gap-1 px-4 pt-3 md:hidden">
             {VIEWS.map(([v, label]) => (
               <button key={v} type="button" onClick={() => setView(v)} className={`press rounded-md px-2.5 py-1 text-[12.5px] pointer-coarse:min-h-11 ${view === v ? "bg-overlay text-ink" : "text-ink-3"}`}>
@@ -130,13 +130,15 @@ function VerdictButton({ current }: { current: "approve" | "changes" | "comment"
   };
   return (
     <div className="relative">
-      <button type="button" onClick={() => setOpen((o) => !o)} className="press flex items-center gap-1.5 rounded-md bg-ink px-2.5 py-1 text-[12.5px] font-medium text-page hover:bg-white" aria-expanded={open}>
+      <button type="button" onClick={() => setOpen((o) => !o)} className="press flex items-center gap-1.5 whitespace-nowrap rounded-md bg-ink px-2.5 py-1 text-[12.5px] font-medium text-page hover:bg-white" aria-expanded={open}>
         {current ? (
           <>
             <Check size={13} /> {current === "approve" ? "Approved" : current === "changes" ? "Changes requested" : "Commented"}
           </>
         ) : (
-          "Finish review"
+          <>
+            Finish<span className="hidden sm:inline"> review</span>
+          </>
         )}
       </button>
       {open && (

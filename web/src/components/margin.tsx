@@ -295,7 +295,15 @@ function Composer() {
   };
 
   const presenceText =
-    presence.agent === "listening" ? "The agent is listening and will answer here." : presence.agent === "working" ? "The agent is working. It'll see this when it next checks in." : "The agent isn't connected. It will read this on its next `downstream wait`.";
+    presence.agent === "listening" ? (
+      "The agent is listening and will answer here."
+    ) : presence.agent === "working" ? (
+      "The agent is working. It'll see this when it next checks in."
+    ) : (
+      <>
+        The agent isn't listening. It reads this on its next <code className="font-mono text-ink-2">downstream wait</code>.
+      </>
+    );
 
   return (
     <div className="border-t border-line-subtle bg-pane px-3 pb-3 pt-2.5">

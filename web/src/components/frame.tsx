@@ -112,10 +112,12 @@ export function FrameView({ symbol, next, compact, onToggleCompact, onClose, fir
     for (const [line, links] of linksByLine) {
       const rows = root.querySelectorAll(`[data-line="${line}"]`);
       rows.forEach((row) => {
+        // Deleted rows are numbered on the old side; match each link to its own side.
+        const deleted = (row.getAttribute("data-line-type") ?? "").includes("deletion");
         row.querySelectorAll("span").forEach((span) => {
           if (span.children.length) return;
           const text = span.textContent?.trim();
-          const hit = links.find((l) => l.name === text);
+          const hit = links.find((l) => l.name === text && (l.side === "old") === deleted);
           if (!hit) return;
           span.setAttribute("data-ds-link", hit.id);
           if (hit.id === next) span.setAttribute("data-ds-next", "");

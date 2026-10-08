@@ -2,7 +2,7 @@
 // same HTTP actions the browser uses; reads can also go straight to SQLite
 // through a read-only connection.
 import { spawn, execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, openSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, openSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import net from "node:net";
 import { fileURLToPath } from "node:url";
@@ -48,16 +48,34 @@ const dir = path.join(root, ".downstream");
 const serverFile = path.join(dir, "server.json");
 const cursorFile = path.join(dir, "agent-cursor");
 
-async function serverUrl(): Promise<string | null> {
+async function health(): Promise<{ url: string; pid: number; startedAt: number } | null> {
   if (!existsSync(serverFile)) return null;
   const { url } = JSON.parse(readFileSync(serverFile, "utf8")) as { url: string };
   try {
     const r = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(1500) });
-    const h = (await r.json()) as { root: string };
-    return path.resolve(h.root) === path.resolve(root) ? url : null;
+    const h = (await r.json()) as { root: string; pid: number; startedAt: number };
+    return path.resolve(h.root) === path.resolve(root) ? { url, pid: h.pid, startedAt: h.startedAt ?? 0 } : null;
   } catch {
     return null;
   }
+}
+
+async function serverUrl(): Promise<string | null> {
+  return (await health())?.url ?? null;
+}
+
+function newest(dir: string): number {
+  let t = 0;
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const p = path.join(dir, e.name);
+    t = Math.max(t, e.isDirectory() ? newest(p) : statSync(p).mtimeMs);
+  }
+  return t;
+}
+
+/** Newest change to the server's own code, so an updated skill restarts a stale server. */
+function codeVersion(): number {
+  return Math.max(newest(path.join(skillDir, "server")), newest(path.join(skillDir, "domain")));
 }
 
 function freePort(start: number): Promise<number> {
@@ -73,8 +91,9 @@ function ensureBuilt() {
     console.error("downstream: installing dependencies (first run)…");
     execFileSync("npm", ["install", "--no-audit", "--no-fund"], { cwd: skillDir, stdio: "inherit", shell: process.platform === "win32" });
   }
-  if (!existsSync(path.join(skillDir, "web", "dist", "index.html"))) {
-    console.error("downstream: building the review UI (first run)…");
+  const built = path.join(skillDir, "web", "dist", "index.html");
+  if (!existsSync(built) || newest(path.join(skillDir, "web", "src")) > statSync(built).mtimeMs) {
+    console.error("downstream: building the review UI…");
     execFileSync("npm", ["run", "build"], { cwd: skillDir, stdio: "inherit", shell: process.platform === "win32" });
   }
 }
@@ -90,8 +109,17 @@ function excludeFromGit() {
 }
 
 async function ensureServer(): Promise<string> {
-  const running = await serverUrl();
-  if (running) return running;
+  const running = await health();
+  if (running && running.startedAt >= codeVersion()) return running.url;
+  if (running) {
+    console.error("downstream: the skill was updated; restarting this repository's server…");
+    try {
+      process.kill(running.pid);
+    } catch {
+      /* already gone */
+    }
+    await new Promise((r) => setTimeout(r, 400));
+  }
   ensureBuilt();
   mkdirSync(dir, { recursive: true });
   excludeFromGit();

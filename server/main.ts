@@ -50,7 +50,8 @@ app.onError((err, c) => {
   return c.json({ error: err instanceof Error ? err.message : String(err) }, 500);
 });
 
-app.get("/api/health", (c) => c.json({ ok: true, root, pid: process.pid }));
+const startedAt = Date.now();
+app.get("/api/health", (c) => c.json({ ok: true, root, pid: process.pid, startedAt }));
 
 app.get("/api/reviews", (c) => c.json({ current: store.currentReviewId(), reviews: store.listReviews() }));
 
