@@ -1,0 +1,263 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+/*
+  One rule: code is the page, and the agent speaks in amber.
+  Everything else is ink on graphite. Change state is carried by shape
+  (+ ~ − ·), never by a second accent.
+*/
+@theme {
+  --color-page: #111214;
+  --color-pane: #151618;
+  --color-raised: #1a1b1e;
+  --color-overlay: #222327;
+  --color-code: #131416;
+  --color-line: #27282d;
+  --color-line-subtle: #1e1f23;
+  --color-ink: #e8e4db;
+  --color-ink-2: #a8a49c;
+  --color-ink-3: #6e6c67;
+  --color-ink-4: #4a4946;
+  --color-agent: #f2a63b;
+  --color-agent-ink: #f7c27a;
+  --color-agent-wash: rgb(242 166 59 / 0.09);
+  --color-agent-line: rgb(242 166 59 / 0.35);
+  --color-add: #8cc29a;
+  --color-del: #e08a7e;
+
+  --font-sans: "Geist Variable", ui-sans-serif, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+
+  --radius-sm: 0.3125rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@layer base {
+  html {
+    color-scheme: dark;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+    font-feature-settings: "ss01", "cv11";
+  }
+  body {
+    background: var(--color-page);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    overscroll-behavior-y: none;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection {
+    background: rgb(242 166 59 / 0.28);
+  }
+  :focus-visible {
+    outline: 1.5px solid var(--color-ink-2);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line) transparent;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0ms !important;
+      animation-duration: 0ms !important;
+    }
+  }
+}
+
+@layer components {
+  .press {
+    transition: transform 140ms var(--ease-out), background-color 140ms var(--ease-out), color 140ms var(--ease-out), border-color 140ms var(--ease-out);
+  }
+  .press:active {
+    transform: scale(0.97);
+  }
+  .eyebrow {
+    font-size: var(--text-2xs);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-ink-3);
+    font-weight: 500;
+  }
+  /* The agent's voice: a hairline of amber at the left edge. */
+  .voice {
+    border-left: 2px solid var(--color-agent-line);
+    padding-left: 0.75rem;
+  }
+  .kbd {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--color-ink-3);
+    border: 1px solid var(--color-line);
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    padding: 0 4px;
+    line-height: 15px;
+  }
+}
+
+/* Markdown written by the agent or the user. */
+.prose-ds {
+  color: var(--color-ink-2);
+  font-size: 13.5px;
+  line-height: 1.6;
+}
+.prose-ds p + p,
+.prose-ds p + ul,
+.prose-ds ul + p,
+.prose-ds ol + p,
+.prose-ds p + ol,
+.prose-ds p + pre {
+  margin-top: 0.6em;
+}
+.prose-ds strong {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.prose-ds ul {
+  list-style: disc;
+  padding-left: 1.1em;
+}
+.prose-ds ol {
+  list-style: decimal;
+  padding-left: 1.3em;
+}
+.prose-ds li + li {
+  margin-top: 0.25em;
+}
+.prose-ds code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  color: var(--color-ink);
+  background: var(--color-overlay);
+  border-radius: 4px;
+  padding: 0.05em 0.35em;
+}
+.prose-ds pre {
+  background: var(--color-code);
+  border: 1px solid var(--color-line-subtle);
+  border-radius: var(--radius-md);
+  padding: 0.6rem 0.75rem;
+  overflow-x: auto;
+}
+.prose-ds pre code {
+  background: none;
+  padding: 0;
+}
+.prose-ds a {
+  color: var(--color-ink);
+  text-decoration: underline;
+  text-decoration-color: var(--color-ink-4);
+  text-underline-offset: 3px;
+}
+.prose-ds table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.prose-ds th,
+.prose-ds td {
+  text-align: left;
+  border-bottom: 1px solid var(--color-line-subtle);
+  padding: 0.3rem 0.5rem 0.3rem 0;
+}
+
+/* Pierre diffs, tuned to the page. */
+.ds-code {
+  --diffs-font-family: var(--font-mono);
+  --diffs-header-font-family: var(--font-sans);
+  --diffs-font-size: 12.5px;
+  --diffs-line-height: 20px;
+  --diffs-bg-context-override: var(--color-code);
+  --diffs-bg-buffer-override: var(--color-code);
+  --diffs-bg-context-gutter-override: var(--color-code);
+  --diffs-bg-separator-override: var(--color-pane);
+  --diffs-fg-number-override: var(--color-ink-4);
+  --diffs-bg-selection-override: rgb(242 166 59 / 0.12);
+  --diffs-bg-selection-number-override: rgb(242 166 59 / 0.2);
+  --diffs-bg-hover-override: rgb(232 228 219 / 0.035);
+  --diffs-addition-color-override: #8cc29a;
+  --diffs-deletion-color-override: #e08a7e;
+  --diffs-bg-addition-override: rgb(140 194 154 / 0.075);
+  --diffs-bg-addition-emphasis-override: rgb(140 194 154 / 0.2);
+  --diffs-bg-deletion-override: rgb(224 138 126 / 0.075);
+  --diffs-bg-deletion-emphasis-override: rgb(224 138 126 / 0.2);
+  --diffs-annotation-bg: transparent;
+}
+
+/* Tokens that lead somewhere: dotted underline, solid on hover. */
+.ds-code [data-ds-link] {
+  text-decoration: underline dotted var(--color-ink-4);
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.ds-code [data-ds-link]:hover {
+  text-decoration-style: solid;
+  text-decoration-color: var(--color-ink-2);
+}
+.ds-code [data-ds-next] {
+  text-decoration: underline solid var(--color-agent);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
+}
+
+.fade-in {
+  animation: fade-in 160ms var(--ease-out);
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+/* Pierre trees, in ink. Git state stays a letter, not a color. */
+.ds-tree {
+  --trees-bg-override: var(--color-page);
+  --trees-bg-muted-override: var(--color-pane);
+  --trees-fg-override: var(--color-ink-2);
+  --trees-fg-muted-override: var(--color-ink-3);
+  --trees-accent-override: var(--color-ink);
+  --trees-border-color-override: var(--color-line-subtle);
+  --trees-selected-bg-override: var(--color-overlay);
+  --trees-selected-fg-override: var(--color-ink);
+  --trees-selected-focused-border-color-override: var(--color-line);
+  --trees-focus-ring-color-override: var(--color-ink-3);
+  --trees-indent-guide-bg-override: var(--color-line-subtle);
+  --trees-font-family-override: var(--font-sans);
+  --trees-font-size-override: 12.5px;
+  --trees-border-radius-override: 6px;
+  --trees-status-added-override: var(--color-ink);
+  --trees-status-modified-override: var(--color-ink-2);
+  --trees-status-deleted-override: var(--color-ink-3);
+  --trees-status-renamed-override: var(--color-ink-2);
+  --trees-status-untracked-override: var(--color-ink-2);
+  --trees-git-added-color-override: var(--color-ink);
+  --trees-git-modified-color-override: var(--color-ink-2);
+  --trees-git-deleted-color-override: var(--color-ink-3);
+  --trees-git-renamed-color-override: var(--color-ink-2);
+  --trees-git-untracked-color-override: var(--color-ink-2);
+  --trees-scrollbar-thumb-override: var(--color-line);
+  --trees-file-icon-color-default: var(--color-ink-3);
+  --trees-file-icon-color-react: var(--color-ink-3);
+  --trees-file-icon-color-typescript: var(--color-ink-3);
+  --trees-file-icon-color-javascript: var(--color-ink-3);
+  --trees-file-icon-color-json: var(--color-ink-3);
+  --trees-file-icon-color-css: var(--color-ink-3);
+  --trees-file-icon-color-markdown: var(--color-ink-3);
+  --trees-file-icon-color-python: var(--color-ink-3);
+  --trees-file-icon-color-go: var(--color-ink-3);
+  --trees-file-icon-color-rust: var(--color-ink-3);
+}

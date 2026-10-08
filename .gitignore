@@ -1,0 +1,6 @@
+node_modules/
+web/dist/
+.downstream/
+*.log
+t1.ts
+.shots/
