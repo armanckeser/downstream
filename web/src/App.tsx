@@ -19,6 +19,9 @@ export function App() {
   const { state, error, view, setView, live, presence, openStep, stepId } = useReview();
   const [pane, setPane] = useState<"rail" | "main" | "margin">("main");
   const [sending, setSending] = useState(false);
+  // The rail is for finding your way in; once you're reading, give the code its width.
+  const [railOpen, setRailOpen] = useState(() => localStorage.getItem("ds.rail") !== "closed");
+  useEffect(() => localStorage.setItem("ds.rail", railOpen ? "open" : "closed"), [railOpen]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -26,6 +29,7 @@ export function App() {
       if (t.closest("textarea, input, select") || e.metaKey || e.ctrlKey || e.altKey) return;
       const hit = VIEWS.find(([, , k]) => k === e.key);
       if (hit) return setView(hit[0]);
+      if (e.key === "\\") return setRailOpen((o) => !o);
       if ((e.key === "j" || e.key === "k") && state?.steps.length) {
         const i = state.steps.findIndex((s) => s.id === stepId);
         const next = e.key === "j" ? Math.min(state.steps.length - 1, i + 1) : Math.max(0, i - 1);
@@ -57,7 +61,12 @@ export function App() {
   return (
     <div className="grid min-h-[100dvh] grid-cols-[minmax(0,1fr)] grid-rows-[auto_1fr] lg:h-[100dvh]">
       <header className="flex items-center gap-3 border-b border-line-subtle px-4 py-2">
-        <Mark />
+        <button type="button" onClick={() => setRailOpen((o) => !o)} className="press hidden rounded-md p-1 hover:bg-overlay lg:block" title={railOpen ? "Hide the rail (\)" : "Show the rail (\)"} aria-pressed={railOpen}>
+          <Mark />
+        </button>
+        <span className="lg:hidden">
+          <Mark />
+        </span>
         <div className="min-w-0">
           <p className="truncate text-[13.5px] font-medium text-ink">{review?.title ?? "Loading…"}</p>
         </div>
@@ -98,7 +107,7 @@ export function App() {
         </div>
       </header>
 
-      <div className="min-h-0 lg:grid lg:grid-cols-[17rem_minmax(0,1fr)_23rem]">
+      <div className={`min-h-0 lg:grid ${railOpen ? "lg:grid-cols-[17rem_minmax(0,1fr)_23rem]" : "lg:grid-cols-[minmax(0,1fr)_23rem]"}`}>
         <div className="flex border-b border-line-subtle lg:hidden" role="tablist">
           {(["rail", "main", "margin"] as const).map((p) => (
             <button key={p} type="button" role="tab" aria-selected={pane === p} onClick={() => setPane(p)} className={`press flex-1 py-2.5 text-[13px] pointer-coarse:min-h-11 ${pane === p ? "text-ink" : "text-ink-3"}`}>
@@ -106,7 +115,7 @@ export function App() {
             </button>
           ))}
         </div>
-        <div className={`min-h-0 border-line-subtle lg:block lg:border-r ${pane === "rail" ? "block" : "hidden"}`}>
+        <div className={`min-h-0 border-line-subtle lg:border-r ${railOpen ? "lg:block" : "lg:hidden"} ${pane === "rail" ? "block" : "hidden"}`}>
           <Rail />
         </div>
         <main className={`min-h-0 min-w-0 overflow-x-hidden overflow-y-auto lg:block ${pane === "main" ? "block" : "hidden"} ${view === "map" ? "h-[calc(100dvh-90px)] overflow-hidden lg:h-auto" : ""}`}>
