@@ -34,7 +34,12 @@ export function HoverProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(null);
-    const onScroll = () => setOpen(null);
+    // Scrolling the page moves the anchor out from under the card, but scrolling
+    // inside the card is the reader using it.
+    const onScroll = (e: Event) => {
+      if (e.target instanceof Element && e.target.closest("[data-hover-card]")) return;
+      setOpen(null);
+    };
     window.addEventListener("keydown", onKey);
     window.addEventListener("scroll", onScroll, true);
     return () => {
@@ -88,6 +93,7 @@ function Card({ rect, target, onEnter, onLeave }: { rect: DOMRect; target: Hover
       className={`fade-in fixed z-50 ${symbolId ? "w-[min(30rem,calc(100vw-24px))]" : "w-max max-w-[min(34rem,calc(100vw-24px))]"} rounded-lg border border-line bg-raised shadow-[0_12px_40px_-12px_rgb(0_0_0/0.7)]`}
       style={{ left: pos?.left ?? -9999, top: pos?.top ?? -9999 }}
       role="tooltip"
+      data-hover-card
     >
       {symbolId ? <SymbolBody id={symbolId} ts={ts} hint={target.type === "symbol" ? target.hint : undefined} /> : <TsBody ts={ts} />}
     </div>
@@ -98,7 +104,7 @@ function TsBody({ ts }: { ts: Hover | "loading" }) {
   if (ts === "loading") return <div className="px-3 py-2 font-mono text-xs text-ink-3">reading types…</div>;
   if (!ts) return null;
   return (
-    <div className="max-h-80 overflow-auto px-3 py-2.5">
+    <div className="max-h-80 overflow-auto overscroll-contain px-3 py-2.5">
       <pre className="whitespace-pre-wrap break-words font-mono text-[12px] leading-5 text-ink">{ts.display}</pre>
       {ts.docs && <p className="mt-2 border-t border-line-subtle pt-2 text-[12.5px] leading-5 text-ink-2">{ts.docs}</p>}
       {ts.tags.length > 0 && (
@@ -136,7 +142,7 @@ function SymbolBody({ id, ts, hint }: { id: string; ts: Hover | "loading"; hint?
           {s.range ? `:${s.range.start}` : ""}
         </span>
       </div>
-      {signature && <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words font-mono text-[11.5px] leading-[18px] text-ink-2">{signature}</pre>}
+      {signature && <pre className="mt-2 max-h-40 overflow-auto overscroll-contain whitespace-pre-wrap break-words font-mono text-[11.5px] leading-[18px] text-ink-2">{signature}</pre>}
       {ts && ts !== "loading" && ts.docs && <p className="mt-1.5 text-[12.5px] text-ink-2">{ts.docs}</p>}
       {s.summary && (
         <div className="voice mt-2.5">
