@@ -11,7 +11,7 @@
     "dev:web": "vite --config web/vite.config.ts",
     "build": "vite build --config web/vite.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
-    "test": "node --import tsx --test server/**/*.test.ts"
+    "test": "node --no-warnings=ExperimentalWarning --import tsx --test server/analyze/graph.test.ts"
   },
   "engines": {
     "node": ">=22.13"

@@ -161,11 +161,11 @@ function ThreadBody({ note }: { note: Note }) {
 
   return (
     <div className="fade-in px-3 pb-3">
-      <div className="flex items-center gap-2 pb-1.5">
+      <div className={`flex items-center gap-2 ${note.body ? "pb-1.5" : ""}`}>
         <AuthorTag author={note.author} />
         <span className="font-mono text-2xs text-ink-4">{timeAgo(note.createdAt)}</span>
       </div>
-      {note.body && <Markdown text={note.body} />}
+      {note.body && <div className={note.author === "agent" ? "voice" : ""}><Markdown text={note.body} /></div>}
       {note.alternatives.length > 0 && (
         <div className="mt-2.5 rounded-md border border-line-subtle">
           <p className="eyebrow border-b border-line-subtle px-2.5 py-1.5">Considered instead</p>

@@ -1,0 +1,28 @@
+// README stills from a running review: node scripts/stills.mjs <url> <out-dir>
+import { chromium } from "playwright";
+const [url, out = "docs"] = process.argv.slice(2);
+const b = await chromium.launch();
+const p = await b.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
+await p.goto(url, { waitUntil: "networkidle" });
+await p.waitForTimeout(800);
+await p.screenshot({ path: `${out}/overview.png` });
+await p.locator("nav[aria-label='Ways in'] ol li button").first().click();
+await p.waitForTimeout(1500);
+await p.locator("article").first().locator("span", { hasText: /^LiveItem$/ }).first().hover();
+await p.waitForTimeout(1500);
+await p.screenshot({ path: `${out}/trail.png` });
+await p.mouse.move(700, 80);
+await p.keyboard.press("j");
+await p.waitForTimeout(400);
+await p.keyboard.press("j");
+await p.waitForTimeout(1500);
+await p.locator("aside[aria-label='Conversation'] li button", { hasText: "every render" }).first().click();
+await p.waitForTimeout(1200);
+await p.screenshot({ path: `${out}/conversation.png` });
+await p.mouse.click(640, 860);
+await p.keyboard.press("m");
+await p.waitForTimeout(1200);
+await p.locator("[data-node]").filter({ hasText: "openFirst" }).first().hover();
+await p.waitForTimeout(1200);
+await p.screenshot({ path: `${out}/map.png` });
+await b.close();

@@ -15,6 +15,8 @@ export type GraphInput = {
   hunks: Map<string, Hunks>;
   oldSrc: FileSource | null;
   newSrc: FileSource;
+  /** Reuse an existing project set (the workspace keeps it for hover). */
+  projects?: TsProjects;
 };
 
 export type Graph = { symbols: CodeSymbol[]; edges: Edge[] };
@@ -54,7 +56,7 @@ export function buildGraph(input: GraphInput): Graph {
   const lap = timer();
   const symbols = new Map<string, CodeSymbol>();
   const edges = new Map<string, Edge>();
-  const projects = new TsProjects(input.root, input.newSrc, input.files.filter((f) => f.status !== "deleted").map((f) => f.path));
+  const projects = input.projects ?? new TsProjects(input.root, input.newSrc, input.files.filter((f) => f.status !== "deleted").map((f) => f.path));
 
   const addEdge = (from: string, to: string, kind: EdgeKind, line: number | null, change: Edge["change"]) => {
     if (from === to) return;

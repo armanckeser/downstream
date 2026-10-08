@@ -4,3 +4,5 @@ web/dist/
 *.log
 t1.ts
 .shots/
+docs/.video/
+docs/*.webm

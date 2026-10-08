@@ -85,7 +85,7 @@ function Card({ rect, target, onEnter, onLeave }: { rect: DOMRect; target: Hover
       ref={ref}
       onPointerEnter={onEnter}
       onPointerLeave={onLeave}
-      className="fade-in fixed z-50 w-[min(30rem,calc(100vw-24px))] rounded-lg border border-line bg-raised shadow-[0_12px_40px_-12px_rgb(0_0_0/0.7)]"
+      className={`fade-in fixed z-50 ${symbolId ? "w-[min(30rem,calc(100vw-24px))]" : "w-max max-w-[min(34rem,calc(100vw-24px))]"} rounded-lg border border-line bg-raised shadow-[0_12px_40px_-12px_rgb(0_0_0/0.7)]`}
       style={{ left: pos?.left ?? -9999, top: pos?.top ?? -9999 }}
       role="tooltip"
     >
@@ -95,7 +95,7 @@ function Card({ rect, target, onEnter, onLeave }: { rect: DOMRect; target: Hover
 }
 
 function TsBody({ ts }: { ts: Hover | "loading" }) {
-  if (ts === "loading") return <div className="h-9 animate-none px-3 py-2.5 font-mono text-xs text-ink-3">reading types…</div>;
+  if (ts === "loading") return <div className="px-3 py-2 font-mono text-xs text-ink-3">reading types…</div>;
   if (!ts) return null;
   return (
     <div className="max-h-80 overflow-auto px-3 py-2.5">

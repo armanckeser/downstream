@@ -59,9 +59,10 @@ export class Workspace {
       this.files = listed.map((p) => ({ path: p, oldPath: null, status: "context" as const, additions: 0, deletions: 0 }));
       this.hunks = new Map();
     }
-    const graph = buildGraph({ root: this.root, mode: this.review.mode, files: this.files, hunks: this.hunks, oldSrc: this.oldSrc, newSrc: this.newSrc });
-    this.newProjects = null;
+    // The analyzer's parsed programs become the hover service, so the first hover is instant.
+    this.newProjects = new TsProjects(this.root, this.newSrc, this.files.filter((f) => f.status !== "deleted").map((f) => f.path));
     this.oldProjects = null;
+    const graph = buildGraph({ root: this.root, mode: this.review.mode, files: this.files, hunks: this.hunks, oldSrc: this.oldSrc, newSrc: this.newSrc, projects: this.newProjects });
     return { files: this.files, graph };
   }
 
