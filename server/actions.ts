@@ -18,6 +18,8 @@ import {
   Step,
   Suggestion,
   SymbolKind,
+  FindingCategory,
+  Outgoing,
   SymbolStatus,
   type Edge,
   type Review,
@@ -25,6 +27,8 @@ import {
 import { newId, now, type Store } from "./store.ts";
 import { resolveTarget, Workspace } from "./workspace.ts";
 import { tryGit } from "./analyze/git.ts";
+import { isTestFile } from "./analyze/graph.ts";
+import { draft, publish } from "./publish.ts";
 
 export type ActionContext = {
   store: Store;
@@ -69,8 +73,10 @@ function requireSymbol(ctx: ActionContext & { reviewId: string }, id: string): C
   throw new ActionError(`No symbol "${id}". Run \`downstream show\` for ids.`, 404);
 }
 
+/** Threads are addressed by id or by their number ("3", "#3"), the way people talk about them. */
 function requireNote(ctx: ActionContext & { reviewId: string }, id: string): Note {
-  const n = ctx.store.note(ctx.reviewId, id);
+  const byNumber = id.match(/^#?(\d+)$/);
+  const n = byNumber ? (ctx.store.notes(ctx.reviewId).find((x) => x.number === Number(byNumber[1])) ?? null) : ctx.store.note(ctx.reviewId, id);
   if (!n) throw new ActionError(`No thread "${id}".`, 404);
   return n;
 }
@@ -105,6 +111,8 @@ export const openReview = defineAction({
         status: "drafting",
         createdAt: now(),
         verdicts: [],
+        outgoingBody: "",
+        published: null,
       };
     } else {
       const t = resolveTarget(ctx.root, input);
@@ -121,6 +129,8 @@ export const openReview = defineAction({
         status: "drafting",
         createdAt: now(),
         verdicts: [],
+        outgoingBody: "",
+        published: null,
       };
     }
     ctx.store.saveReview(review, ctx.root);
@@ -148,7 +158,13 @@ defineAction({
 defineAction({
   name: "review.update",
   description: "Set the title, the summary (markdown), or the status (drafting → ready when the walkthrough is written).",
-  input: z.object({ title: z.string().optional(), summary: z.string().optional(), status: z.enum(["drafting", "ready", "done"]).optional() }),
+  input: z.object({
+    title: z.string().optional(),
+    summary: z.string().optional(),
+    status: z.enum(["drafting", "ready", "done"]).optional(),
+    /** The review body that goes to the pull request (markdown). */
+    outgoingBody: z.string().optional(),
+  }),
   run(ctx, input) {
     const review = ctx.store.review(ctx.reviewId)!;
     const next = { ...review, ...Object.fromEntries(Object.entries(input).filter(([, v]) => v !== undefined)) } as Review;
@@ -238,6 +254,7 @@ defineAction({
         entry: input.entry,
         summary: input.summary,
         changedLines: 0,
+        test: isTestFile(input.file),
       };
     } else {
       s = { ...s, summary: input.summary, entry: input.entry, status: input.status };
@@ -323,12 +340,16 @@ const NoteInput = z.object({
   title: z.string(),
   body: z.string().default(""),
   severity: Severity.nullable().default(null),
+  category: FindingCategory.nullable().default(null),
+  fix: z.string().default(""),
+  impact: z.string().default(""),
   symbolId: z.string().nullable().default(null),
   file: z.string().nullable().default(null),
   lines: Range.nullable().default(null),
   side: z.enum(["new", "old"]).default("new"),
   alternatives: z.array(Alternative).default([]),
   suggestion: Suggestion.nullable().default(null),
+  outgoing: Outgoing.nullable().default(null),
 });
 
 function makeNote(ctx: ActionContext & { reviewId: string }, input: z.infer<typeof NoteInput>): Note {
@@ -336,10 +357,15 @@ function makeNote(ctx: ActionContext & { reviewId: string }, input: z.infer<type
   if (input.kind === "finding" && !input.severity) input.severity = "concern";
   return {
     id: newId("n"),
+    number: ctx.store.nextNoteNumber(ctx.reviewId),
     kind: input.kind,
     severity: input.kind === "finding" ? input.severity : null,
+    category: input.kind === "finding" ? input.category : null,
     title: input.title,
     body: input.body,
+    fix: input.fix,
+    impact: input.impact,
+    outgoing: input.outgoing,
     symbolId: symbol?.id ?? null,
     file: input.file ?? symbol?.file ?? null,
     lines: input.lines,
@@ -400,7 +426,7 @@ defineAction({
   input: z.object({ body: z.string().min(1), symbolId: z.string().nullable().default(null), file: z.string().nullable().default(null), lines: Range.nullable().default(null), side: z.enum(["new", "old"]).default("new") }),
   run(ctx, input) {
     const title = input.body.split("\n")[0]!.slice(0, 120);
-    const note = makeNote(ctx, { kind: "question", title, body: input.body.length > title.length ? input.body : "", severity: null, symbolId: input.symbolId, file: input.file, lines: input.lines, side: input.side, alternatives: [], suggestion: null });
+    const note = makeNote(ctx, NoteInput.parse({ kind: "question", title, body: input.body.length > title.length ? input.body : "", symbolId: input.symbolId, file: input.file, lines: input.lines, side: input.side }));
     ctx.store.putNote(ctx.reviewId, note);
     ctx.store.emit(ctx.reviewId, "ask", ctx.actor, { id: note.id, body: input.body, symbolId: note.symbolId, file: note.file, lines: note.lines });
     return note;
@@ -422,6 +448,10 @@ defineAction({
     removeEdges: z.array(z.string()).default([]),
     steps: z.array(StepInput).optional(),
     notes: z.array(NoteInput).default([]),
+    /** Edits to existing threads by id or number, e.g. drafting their outgoing comments. */
+    updates: z.array(z.object({ noteId: z.string() }).passthrough()).default([]),
+    /** The review body for the pull request. */
+    outgoingBody: z.string().optional(),
   }),
   async run(ctx, input) {
     const results: string[] = [];
@@ -429,8 +459,8 @@ defineAction({
       const def = actions.get(name)!;
       return def.run(ctx, def.input.parse(payload));
     };
-    if (input.title || input.summary || input.status) {
-      await call("review.update", { title: input.title, summary: input.summary, status: input.status });
+    if (input.title || input.summary || input.status || input.outgoingBody !== undefined) {
+      await call("review.update", { title: input.title, summary: input.summary, status: input.status, outgoingBody: input.outgoingBody });
       results.push("review updated");
     }
     for (const s of input.addSymbols) await call("symbol.add", s);
@@ -445,6 +475,8 @@ defineAction({
     }
     for (const n of input.notes) await call("note.add", n);
     if (input.notes.length) results.push(`${input.notes.length} notes`);
+    for (const u of input.updates) await call("note.update", u);
+    if (input.updates.length) results.push(`${input.updates.length} threads updated`);
     return { ok: true, applied: results };
   },
 });
@@ -508,3 +540,63 @@ function defaultTitle(root: string, head: string, base: string, pr?: number): st
   const branch = tryGit(root, ["branch", "--show-current"])?.trim();
   return branch && branch !== "main" && branch !== "master" ? `${branch}, uncommitted` : "Uncommitted work";
 }
+
+// --- what goes to the pull request ---------------------------------------------------------------
+
+defineAction({
+  name: "note.update",
+  description:
+    "Edit a thread: its wording, severity, fix or impact, or its outgoing comment (`outgoing: {include, body}` decides whether and how it goes to the PR author).",
+  input: z.object({
+    noteId: z.string(),
+    title: z.string().optional(),
+    body: z.string().optional(),
+    fix: z.string().optional(),
+    impact: z.string().optional(),
+    severity: Severity.nullable().optional(),
+    category: FindingCategory.nullable().optional(),
+    outgoing: Outgoing.nullable().optional(),
+  }),
+  run(ctx, input) {
+    const note = requireNote(ctx, input.noteId);
+    const { noteId: _id, ...patch } = input;
+    const next = { ...note, ...Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)) } as Note;
+    ctx.store.putNote(ctx.reviewId, next);
+    ctx.store.emit(ctx.reviewId, "note.updated", ctx.actor, { noteId: note.id, number: note.number, title: next.title, fields: Object.keys(patch).filter((k) => patch[k as keyof typeof patch] !== undefined) });
+    return next;
+  },
+});
+
+defineAction({
+  name: "review.draft",
+  readOnly: true,
+  description: "The review as it would be sent: event, body, and each inline comment (or the ones that fall outside the diff and go into the body).",
+  input: z.object({ event: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).optional(), body: z.string().optional() }),
+  run(ctx, input) {
+    return draft(ctx.root, ctx.store.state(ctx.reviewId)!, input);
+  },
+});
+
+defineAction({
+  name: "review.publish",
+  description:
+    "Send the review to the pull request on GitHub. Outward-facing and permanent: the agent only calls this when the user has explicitly said to send it.",
+  input: z.object({ event: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).optional(), body: z.string().optional() }),
+  run(ctx, input) {
+    const state = ctx.store.state(ctx.reviewId)!;
+    const d = draft(ctx.root, state, input);
+    let sent: { url: string; comments: number };
+    try {
+      sent = publish(ctx.root, state, d);
+    } catch (e) {
+      const err = e as Error & { stderr?: string };
+      const detail = err.stderr?.toString().trim() || err.message;
+      if (/own pull request/i.test(detail)) throw new ActionError("GitHub doesn't allow approving or requesting changes on your own pull request. Send it as Comment.", 422);
+      throw new ActionError(`GitHub refused the review: ${detail.split("\n").slice(0, 3).join(" ")}`, 502);
+    }
+    const published = { url: sent.url, at: now(), event: d.event, comments: sent.comments };
+    ctx.store.saveReview({ ...state.review, published, outgoingBody: d.body });
+    ctx.store.emit(ctx.reviewId, "review.published", ctx.actor, published);
+    return published;
+  },
+});

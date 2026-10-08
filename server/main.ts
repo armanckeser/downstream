@@ -158,7 +158,7 @@ app.get("/api/events", (c) => {
  * resolves, gives a verdict, ends the session) and returns those events.
  * While it blocks, the UI shows the agent as listening.
  */
-const LISTEN_TO = new Set(["note.added", "note.replied", "note.status", "ask", "review.verdict", "review.done", "symbol.annotated", "symbol.added", "edge.added", "steps.set"]);
+const LISTEN_TO = new Set(["note.added", "note.replied", "note.status", "note.updated", "ask", "review.verdict", "review.done", "review.published", "symbol.annotated", "symbol.added", "edge.added", "steps.set"]);
 app.get("/api/wait", async (c) => {
   const id = reviewOf(c.req.query("review"));
   if (!id) return c.json({ error: "No review" }, 404);

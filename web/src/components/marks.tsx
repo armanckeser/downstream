@@ -1,5 +1,9 @@
 // Small marks that carry meaning by shape, so color stays reserved for the agent.
-import type { Author, CodeSymbol, Edge, Note, Severity, SymbolKind, SymbolStatus } from "@domain/model.ts";
+import { severityLabel, type Author, type CodeSymbol, type Edge, type Note, type Severity, type SymbolKind, type SymbolStatus } from "@domain/model.ts";
+
+export function NoteNumber({ note }: { note: Note }) {
+  return <span className="font-mono text-2xs text-ink-3">#{note.number}</span>;
+}
 
 const statusLabel: Record<SymbolStatus, string> = { added: "added", modified: "modified", removed: "removed", context: "unchanged" };
 
@@ -64,7 +68,7 @@ export function NoteKindTag({ note }: { note: Note }) {
   const agent = note.author === "agent";
   return (
     <span className={`font-mono text-2xs ${agent ? "text-agent-ink" : "text-ink-2"}`}>
-      {note.kind === "finding" && note.severity ? note.severity : kindWord[note.kind]}
+      {note.kind === "finding" && note.severity ? severityLabel[note.severity] : kindWord[note.kind]}
     </span>
   );
 }

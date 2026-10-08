@@ -6,7 +6,7 @@ import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, ope
 import path from "node:path";
 import net from "node:net";
 import { fileURLToPath } from "node:url";
-import type { CodeSymbol, Edge, Note, ReviewEvent, ReviewState } from "../domain/model.ts";
+import { severityLabel, type CodeSymbol, type Edge, type Note, type ReviewEvent, type ReviewState } from "../domain/model.ts";
 
 const skillDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const argv = process.argv.slice(2);
@@ -222,10 +222,11 @@ function outline(state: ReviewState) {
 const short = (s: CodeSymbol | undefined, id: string) => (s ? `${s.container ? s.container + "." : ""}${s.name}` : id);
 
 function noteLine(n: Note) {
-  const sev = n.severity ? `/${n.severity}` : "";
+  const sev = n.severity ? `/${severityLabel[n.severity]}` : "";
+  const out = n.outgoing ? (n.outgoing.include ? "  [goes to PR]" : "  [private]") : "";
   const last = n.replies.at(-1);
   const waiting = last ? (last.author === "user" ? "  ← user replied" : "") : n.author === "user" ? "  ← from user" : "";
-  return `[${n.id}] ${n.status === "open" ? "" : `(${n.status}) `}${n.kind}${sev} by ${n.author}: ${n.title}${n.symbolId ? `  @ ${n.symbolId}` : ""}${n.lines ? `:${n.lines.start}-${n.lines.end}` : ""}  (${n.replies.length} replies)${waiting}`;
+  return `#${n.number} [${n.id}] ${n.status === "open" ? "" : `(${n.status}) `}${n.kind}${sev} by ${n.author}: ${n.title}${n.symbolId ? `  @ ${n.symbolId}` : ""}${n.lines ? `:${n.lines.start}-${n.lines.end}` : ""}  (${n.replies.length} replies)${waiting}${out}`;
 }
 
 function printFrame(patch: string) {
@@ -264,6 +265,10 @@ function describe(e: ReviewEvent, state: ReviewState | null): string {
       return `The user's verdict: ${p.value}${p.body ? ` ("${p.body}")` : ""}`;
     case "review.done":
       return "The user ended the review session.";
+    case "note.updated":
+      return `The user edited #${p.number} "${p.title}" (${(p.fields as string[]).join(", ")}). Run downstream draft to see what would be sent.`;
+    case "review.published":
+      return `The user sent the review to the pull request (${p.event}, ${p.comments} inline comments): ${p.url}`;
     case "symbol.annotated":
       return `The user changed ${p.id}${p.entry !== null ? ` (entry=${p.entry})` : ""}`;
     default:
@@ -293,6 +298,9 @@ Write (the browser uses the same actions)
   ask "…" [--symbol s] [--lines a-b]
   go <symbol> [--lines a-b] | go step <n> | go thread <id> | go map | go overview
   verdict approve|changes|comment ["…"]
+  outgoing <thread> "…" [--exclude]   word a thread for the PR author, or keep it private
+  draft                    the review exactly as it would be sent
+  send [--event comment]   send it to the PR, only when the user has said to
   reanalyze                re-read the code after edits
   do <action> '<json>'     call any action directly
 
@@ -393,10 +401,13 @@ async function main() {
         title: str("title") ?? fail("--title is required"),
         body: str("body") ?? "",
         severity: str("severity") ?? null,
+        category: str("category") ?? null,
+        fix: str("fix") ?? "",
+        impact: str("impact") ?? "",
         lines: range(str("lines")),
         side: str("side") ?? "new",
       });
-      console.log(`[${note.id}] ${note.kind}: ${note.title}`);
+      console.log(`#${note.number} [${note.id}] ${note.kind}: ${note.title}`);
       return;
     }
     case "reply": {
@@ -431,6 +442,29 @@ async function main() {
       else input = { symbolId: what ?? fail("go <symbol>"), lines: range(str("lines")) };
       await call("navigate", input);
       console.log("moved the user's view");
+      return;
+    }
+    case "outgoing": {
+      // downstream outgoing <thread> "comment for the PR author"   |   --exclude keeps it private
+      const [noteId, ...rest] = pos;
+      const include = !opts.exclude;
+      const body = rest.join(" ") || str("body") || "";
+      await call("note.update", { noteId, outgoing: { include, body } });
+      console.log(include ? `${noteId} goes to the PR${body ? " in your wording" : ""}` : `${noteId} stays private`);
+      return;
+    }
+    case "draft": {
+      const d = await call<{ event: string; markdown: string; target: { pr: number; repo: string | null } | null; comments: { inline: boolean }[] }>("review.draft", {});
+      const target = d.target ? `${d.target.repo ?? "?"} #${d.target.pr}` : "none: not a PR review, copy the markdown";
+      console.log(`Event: ${d.event}   Target: ${target}   Inline comments: ${d.comments.filter((c) => c.inline).length}\n`);
+      console.log(d.markdown);
+      return;
+    }
+    case "send": {
+      const raw = str("event")?.toLowerCase();
+      const event = raw === "approve" ? "APPROVE" : raw === "changes" || raw === "request_changes" ? "REQUEST_CHANGES" : raw === "comment" ? "COMMENT" : undefined;
+      const res = await call<{ url: string; comments: number }>("review.publish", event ? { event } : {});
+      console.log(`Sent: ${res.url} (${res.comments} inline comments)`);
       return;
     }
     case "verdict": {

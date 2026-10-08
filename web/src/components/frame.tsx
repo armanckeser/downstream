@@ -48,7 +48,9 @@ export function FrameView({ symbol, next, compact, onToggleCompact, onClose, fir
   }, [symbol.id, version]);
 
   const outgoing = useMemo(() => (index?.out.get(symbol.id) ?? []).filter((e) => e.kind !== "uses"), [index, symbol.id]);
-  const incoming = useMemo(() => (index?.into.get(symbol.id) ?? []).filter((e) => e.kind !== "uses"), [index, symbol.id]);
+  const allIncoming = useMemo(() => (index?.into.get(symbol.id) ?? []).filter((e) => e.kind !== "uses"), [index, symbol.id]);
+  const incoming = useMemo(() => allIncoming.filter((e) => !index?.byId.get(e.from)?.test), [allIncoming, index]);
+  const testedBy = useMemo(() => allIncoming.filter((e) => index?.byId.get(e.from)?.test), [allIncoming, index]);
   const usesTypes = useMemo(() => (index?.out.get(symbol.id) ?? []).filter((e) => e.kind === "uses"), [index, symbol.id]);
   const notes = index?.notesBySymbol.get(symbol.id) ?? [];
   const nextEdge = next ? outgoing.find((e) => e.to === next) : undefined;
@@ -179,6 +181,7 @@ export function FrameView({ symbol, next, compact, onToggleCompact, onClose, fir
           onOpen={(id) => setTrail([id, ...trail])}
         />
       )}
+      {!compact && testedBy.length > 0 && <EdgeRow label="tested by" edges={testedBy} pick={(e) => e.from} onOpen={(id) => openSymbol(id, { after: symbol.id })} />}
 
       {looseNotes.length > 0 && (
         <ul className="mx-4 mb-2 space-y-1">

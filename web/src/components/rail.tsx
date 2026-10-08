@@ -87,6 +87,7 @@ function Files({ current }: { current: string | null }) {
     [state],
   );
   const [selected, setSelected] = useState<string | null>(null);
+  const [open, setOpen] = useState(false);
   const { model } = useFileTree({
     paths: files,
     initialExpansion: "open",
@@ -109,11 +110,16 @@ function Files({ current }: { current: string | null }) {
 
   return (
     <section className="border-t border-line-subtle px-3 pt-3">
-      <h2 className="eyebrow px-2 pb-1.5">Files</h2>
-      <div className="ds-tree -mx-1">
-        <FileTree model={model} style={{ height: Math.min(260, 28 + files.length * 24) }} />
-      </div>
-      {file && symbols.length > 0 && (
+      <button type="button" onClick={() => setOpen((o) => !o)} className="press eyebrow flex w-full items-center gap-1.5 px-2 pb-1.5 hover:text-ink-2" aria-expanded={open}>
+        Files <span className="font-mono normal-case tracking-normal text-ink-4">{files.length}</span>
+        <span className="ml-auto font-mono normal-case tracking-normal">{open ? "hide" : "show"}</span>
+      </button>
+      {open && (
+        <div className="ds-tree -mx-1">
+          <FileTree model={model} style={{ height: Math.min(260, 28 + files.length * 24) }} />
+        </div>
+      )}
+      {open && file && symbols.length > 0 && (
         <ul className="mb-3 mt-1 border-l border-line-subtle pl-2">
           {symbols.map((s) => (
             <li key={s.id}>

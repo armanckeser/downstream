@@ -6,7 +6,7 @@ import type { Note, Severity } from "@domain/model.ts";
 import { action } from "../lib/api.ts";
 import { useReview } from "../lib/review.tsx";
 import { displayName, severityRank } from "../lib/graph.ts";
-import { AuthorTag, NoteKindTag, SeverityMark } from "./marks.tsx";
+import { AuthorTag, NoteKindTag, NoteNumber, SeverityMark } from "./marks.tsx";
 import { Markdown } from "./markdown.tsx";
 import { useHover } from "./hover.tsx";
 
@@ -67,7 +67,7 @@ export function Margin() {
         ) : (
           <>
             {here.length > 0 && <Group label="On this trail" notes={here} />}
-            {elsewhere.length > 0 && <Group label={here.length ? "Elsewhere" : null} notes={elsewhere} />}
+            {elsewhere.length > 0 && <Group label={here.length ? "Elsewhere" : null} notes={elsewhere} folded={here.length > 0 && !elsewhere.some((n) => n.id === noteId)} />}
           </>
         )}
       </div>
@@ -76,15 +76,25 @@ export function Margin() {
   );
 }
 
-function Group({ label, notes }: { label: string | null; notes: Note[] }) {
+function Group({ label, notes, folded = false }: { label: string | null; notes: Note[]; folded?: boolean }) {
+  const [open, setOpen] = useState(!folded);
+  useEffect(() => setOpen(!folded), [folded]);
   return (
     <section className="mb-3">
-      {label && <h3 className="eyebrow px-2 pb-1 pt-2">{label}</h3>}
-      <ul className="space-y-1">
+      {label &&
+        (folded ? (
+          <button type="button" onClick={() => setOpen((o) => !o)} className="press eyebrow flex w-full items-center gap-1.5 px-2 pb-1 pt-2 hover:text-ink-2" aria-expanded={open}>
+            {label} <span className="font-mono normal-case tracking-normal text-ink-4">{notes.length}</span>
+            <span className="ml-auto font-mono normal-case tracking-normal">{open ? "hide" : "show"}</span>
+          </button>
+        ) : (
+          <h3 className="eyebrow px-2 pb-1 pt-2">{label}</h3>
+        ))}
+      {open && <ul className="space-y-1">
         {notes.map((n) => (
           <Thread key={n.id} note={n} />
         ))}
-      </ul>
+      </ul>}
     </section>
   );
 }
@@ -109,6 +119,7 @@ function Thread({ note }: { note: Note }) {
         <span className="mt-[5px]">{note.kind === "finding" ? <SeverityMark severity={note.severity} author={note.author} /> : <span className={`block size-2 rounded-full ${agent ? "bg-agent/70" : "bg-ink-3"}`} />}</span>
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
+            <NoteNumber note={note} />
             <NoteKindTag note={note} />
             {symbol && (
               <span
@@ -120,7 +131,10 @@ function Thread({ note }: { note: Note }) {
                 {note.lines ? `:${note.lines.start}` : ""}
               </span>
             )}
-            {yourTurn && <span className="ml-auto shrink-0 font-mono text-2xs text-agent">your turn</span>}
+            <span className="ml-auto flex shrink-0 items-center gap-2">
+              {goesOut(note) && <span className="font-mono text-2xs text-ink-3" title="Goes to the pull request">→ PR</span>}
+              {yourTurn && <span className="font-mono text-2xs text-agent">your turn</span>}
+            </span>
           </span>
           <span className={`mt-0.5 block text-[13.5px] leading-snug ${note.status === "open" ? "text-ink" : "text-ink-3 line-through decoration-ink-4"}`}>{note.title}</span>
         </span>
@@ -166,6 +180,8 @@ function ThreadBody({ note }: { note: Note }) {
         <span className="font-mono text-2xs text-ink-4">{timeAgo(note.createdAt)}</span>
       </div>
       {note.body && <div className={note.author === "agent" ? "voice" : ""}><Markdown text={note.body} /></div>}
+      {note.fix && <Labeled label="Fix" text={note.fix} />}
+      {note.impact && <Labeled label="If we skip it" text={note.impact} />}
       {note.alternatives.length > 0 && (
         <div className="mt-2.5 rounded-md border border-line-subtle">
           <p className="eyebrow border-b border-line-subtle px-2.5 py-1.5">Considered instead</p>
@@ -179,14 +195,7 @@ function ThreadBody({ note }: { note: Note }) {
           </ul>
         </div>
       )}
-      {note.suggestion && (
-        <div className="mt-2.5">
-          <p className="eyebrow pb-1">
-            Suggested for lines {note.suggestion.lines.start}–{note.suggestion.lines.end}
-          </p>
-          <pre className="overflow-x-auto rounded-md border border-line-subtle bg-code px-2.5 py-2 font-mono text-[12px] leading-5 text-ink-2">{note.suggestion.code}</pre>
-        </div>
-      )}
+      {note.suggestion && <SuggestionBlock suggestion={note.suggestion} />}
       {note.replies.length > 0 && (
         <ol className="mt-3 space-y-2.5 border-t border-line-subtle pt-2.5">
           {note.replies.map((r) => (
@@ -200,6 +209,7 @@ function ThreadBody({ note }: { note: Note }) {
           ))}
         </ol>
       )}
+      <ForAuthor note={note} />
       <div className="mt-3">
         <label className="sr-only" htmlFor={`reply-${note.id}`}>
           Reply
@@ -376,4 +386,67 @@ function timeAgo(iso: string): string {
   if (s < 3600) return `${Math.round(s / 60)}m`;
   if (s < 86400) return `${Math.round(s / 3600)}h`;
   return `${Math.round(s / 86400)}d`;
+}
+
+function Labeled({ label, text }: { label: string; text: string }) {
+  return (
+    <div className="mt-2.5">
+      <p className="eyebrow pb-0.5">{label}</p>
+      <Markdown text={text} />
+    </div>
+  );
+}
+
+/** Mirrors server/publish.ts goesOut for display; the server decides what is actually sent. */
+export function goesOut(n: Note): boolean {
+  if (n.outgoing) return n.outgoing.include;
+  return n.kind === "finding" && n.status === "open";
+}
+
+/** Whether this thread reaches the PR author, and in what words. The conversation above stays private. */
+function ForAuthor({ note }: { note: Note }) {
+  const included = goesOut(note);
+  const [open, setOpen] = useState(!!note.outgoing?.body);
+  const [text, setText] = useState(note.outgoing?.body ?? "");
+  useEffect(() => setText(note.outgoing?.body ?? ""), [note.outgoing?.body]);
+  const save = (outgoing: { include: boolean; body: string }) => void action("note.update", { noteId: note.id, outgoing });
+  return (
+    <div className="mt-3 rounded-md border border-line-subtle px-2.5 py-2">
+      <div className="flex items-center gap-2">
+        <label className="flex cursor-pointer items-center gap-2 text-[12.5px] text-ink-2">
+          <input type="checkbox" checked={included} onChange={(e) => save({ include: e.target.checked, body: text })} className="accent-[var(--color-ink)]" />
+          Send to the PR author
+        </label>
+        {included && (
+          <button type="button" onClick={() => setOpen((o) => !o)} className="press ml-auto font-mono text-2xs text-ink-3 hover:text-ink-2">
+            {open ? "hide wording" : note.outgoing?.body ? "edit wording" : "reword"}
+          </button>
+        )}
+      </div>
+      {included && open && (
+        <textarea
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={() => text !== (note.outgoing?.body ?? "") && save({ include: true, body: text })}
+          rows={4}
+          placeholder="Empty: the finding goes out as written (title, problem, fix, suggestion). Write here to say it differently to the author."
+          className="mt-2 block w-full resize-y rounded-md border border-line bg-page px-2.5 py-2 text-[12.5px] leading-5 text-ink placeholder:text-ink-4 focus:border-ink-4 focus:outline-none"
+        />
+      )}
+    </div>
+  );
+}
+
+function SuggestionBlock({ suggestion }: { suggestion: NonNullable<Note["suggestion"]> }) {
+  const [open, setOpen] = useState(false);
+  const lines = suggestion.code.split("\n").length;
+  return (
+    <div className="mt-2.5">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="press eyebrow flex items-center gap-1.5 hover:text-ink-2" aria-expanded={open}>
+        Suggested change <span className="font-mono normal-case tracking-normal text-ink-4">lines {suggestion.lines.start}–{suggestion.lines.end} · {lines} line{lines === 1 ? "" : "s"}</span>
+        <span className="font-mono normal-case tracking-normal">{open ? "hide" : "show"}</span>
+      </button>
+      {open && <pre className="mt-1 overflow-x-auto rounded-md border border-line-subtle bg-code px-2.5 py-2 font-mono text-[12px] leading-5 text-ink-2">{suggestion.code}</pre>}
+    </div>
+  );
 }

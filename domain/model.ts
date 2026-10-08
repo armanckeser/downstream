@@ -38,6 +38,8 @@ export const CodeSymbol = z.object({
   exported: z.boolean().default(false),
   /** A door into the change: nothing else in the change calls it. */
   entry: z.boolean().default(false),
+  /** Lives in a test file: shown as "tested by", never a door. */
+  test: z.boolean().default(false),
   /** The agent's one-line answer to "what is this for?". */
   summary: z.string().nullable().default(null),
   /** Changed lines inside the symbol, new side. */
@@ -85,8 +87,18 @@ export type Step = z.infer<typeof Step>;
 export const NoteKind = z.enum(["why", "decision", "finding", "question", "comment"]);
 export type NoteKind = z.infer<typeof NoteKind>;
 
+/** Shown as must fix / should fix / nice to have. */
 export const Severity = z.enum(["blocker", "concern", "nit"]);
 export type Severity = z.infer<typeof Severity>;
+export const severityLabel: Record<Severity, string> = { blocker: "must fix", concern: "should fix", nit: "nice to have" };
+
+/** What kind of problem a finding is, in the order a reviewer who gets paged cares about. */
+export const FindingCategory = z.enum(["bug", "risk", "scale", "test", "speed", "lean"]);
+export type FindingCategory = z.infer<typeof FindingCategory>;
+
+/** The comment this thread becomes on the pull request, if it goes out at all. */
+export const Outgoing = z.object({ include: z.boolean(), body: z.string() });
+export type Outgoing = z.infer<typeof Outgoing>;
 
 export const NoteStatus = z.enum(["open", "resolved", "dismissed"]);
 export type NoteStatus = z.infer<typeof NoteStatus>;
@@ -111,10 +123,19 @@ export type Reply = z.infer<typeof Reply>;
 
 export const Note = z.object({
   id: z.string(),
+  /** Short handle for conversation: "fix 2 and 5". */
+  number: z.number().int().default(0),
   kind: NoteKind,
   severity: Severity.nullable().default(null),
+  category: FindingCategory.nullable().default(null),
   title: z.string(),
+  /** For findings: the problem, with the concrete case that goes wrong. */
   body: z.string().default(""),
+  /** For findings: the smallest fix. */
+  fix: z.string().default(""),
+  /** For findings: what happens if we ship it anyway. */
+  impact: z.string().default(""),
+  outgoing: Outgoing.nullable().default(null),
   symbolId: z.string().nullable().default(null),
   file: z.string().nullable().default(null),
   lines: Range.nullable().default(null),
@@ -162,6 +183,9 @@ export const Review = z.object({
   status: z.enum(["drafting", "ready", "done"]),
   createdAt: z.string(),
   verdicts: z.array(Verdict).default([]),
+  /** The body of the review that goes to the pull request; the agent drafts it, the user edits it. */
+  outgoingBody: z.string().default(""),
+  published: z.object({ url: z.string(), at: z.string(), event: z.string(), comments: z.number().int() }).nullable().default(null),
 });
 export type Review = z.infer<typeof Review>;
 

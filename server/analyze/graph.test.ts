@@ -85,6 +85,8 @@ test("frames carry real line numbers and hover reads types", () => {
       status: "drafting",
       createdAt: new Date().toISOString(),
       verdicts: [],
+      outgoingBody: "",
+      published: null,
     };
     const ws = new Workspace(r.root, review);
     const { graph } = ws.analyze();
@@ -119,6 +121,58 @@ test("teach mode maps existing code without a diff", () => {
       g.symbols.filter((s) => s.entry).map((s) => s.id),
       ["src/main.ts#main"],
     );
+  } finally {
+    r.cleanup();
+  }
+});
+
+const PY_BASE = {
+  "app/__init__.py": "",
+  "app/service.py": `class GrantService:\n    """Writes grants."""\n\n    def create(self, qty):\n        return self.audit(qty)\n\n    def audit(self, qty):\n        return qty\n`,
+  "app/api.py": `from fastapi import APIRouter\nfrom .service import GrantService\n\nrouter = APIRouter()\nsvc = GrantService()\n\n\n@router.post("/grants")\ndef create_grant(body: dict):\n    return svc.create(body["qty"])\n`,
+  "app/jobs.py": `from app.service import GrantService\n\n\ndef nightly():\n    GrantService().create(1)\n`,
+};
+
+test("python: statuses, routes as doors, calls through imports and self, callers", () => {
+  const r = repo(PY_BASE);
+  try {
+    r.write({
+      "app/service.py": `class GrantService:\n    """Writes grants."""\n\n    def create(self, qty):\n        \"\"\"Validate, then store.\"\"\"\n        return self.validate(qty)\n\n    def validate(self, qty):\n        if qty < 0:\n            raise ValueError("negative")\n        return qty\n`,
+    });
+    const d = diff(r.root, "HEAD", "WORKTREE");
+    const g = buildGraph({ root: r.root, mode: "diff", files: d.files, hunks: d.hunks, oldSrc: refSource(r.root, d.mergeBase), newSrc: worktreeSource(r.root) });
+    const by = new Map(g.symbols.map((s) => [s.id, s]));
+    assert.equal(by.get("app/service.py#GrantService.create")?.status, "modified");
+    assert.equal(by.get("app/service.py#GrantService.validate")?.status, "added");
+    assert.equal(by.get("app/service.py#GrantService.audit")?.status, "removed");
+
+    const edge = (from: string, to: string) => g.edges.find((e) => e.from === from && e.to === to);
+    assert.equal(edge("app/service.py#GrantService.create", "app/service.py#GrantService.validate")?.change, "added");
+    assert.equal(edge("app/service.py#GrantService.create", "app/service.py#GrantService.audit")?.change, "removed");
+    // Callers through a module-level instance and through `from app.service import ...`.
+    assert.ok(edge("app/api.py#create_grant", "app/service.py#GrantService.create"), "route calls create");
+    assert.ok(edge("app/jobs.py#nightly", "app/service.py#GrantService.create"), "job calls create");
+    assert.equal(by.get("app/api.py#create_grant")?.kind, "route");
+  } finally {
+    r.cleanup();
+  }
+});
+
+test("python hover reads signatures and docstrings through imports", () => {
+  const r = repo(PY_BASE);
+  try {
+    const review: Review = {
+      id: "rv_py", title: "t", mode: "teach", base: null, baseSha: null, head: "WORKTREE", paths: ["app"], pr: null,
+      summary: "", status: "drafting", createdAt: new Date().toISOString(), verdicts: [], outgoingBody: "", published: null,
+    };
+    const ws = new Workspace(r.root, review);
+    const { graph } = ws.analyze();
+    assert.ok(graph.symbols.some((s) => s.id === "app/api.py#create_grant" && s.entry));
+    // `svc.create(...)` on line 10 of api.py, cursor on "create".
+    const h = ws.hover("app/api.py", 10, 15, "new");
+    assert.match(h?.display ?? "", /def create\(self, qty\)/);
+    const cls = ws.hover("app/jobs.py", 5, 6, "new");
+    assert.match(cls?.docs ?? cls?.display ?? "", /Writes grants|class GrantService|def /);
   } finally {
     r.cleanup();
   }

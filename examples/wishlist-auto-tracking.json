@@ -1,0 +1,52 @@
+{
+  "summary": "Price tracking stops being something you switch on. Any wishlisted item with a product link is checked daily, and the first successful check turns tracking on by itself (`apply_price_observation`). Owners can still switch it off, which is now recorded explicitly in a new column, `price_tracking_disabled_by_user`, so the scheduler can tell *you said no* apart from *not working yet* and *auto-paused*.\n\nThe scheduler also changes shape: due items are grouped by store, each store's items still run one at a time with the jittered delay, and up to 8 stores run at once (`check_tracked_prices` → `_check_domain_group`). Repeated failures now pause an item after 3 attempts instead of 5, whether or not it ever had a price.\n\nThe risk is in the migration: everyone who turned tracking off before this change is about to be opted back in.",
+  "status": "ready",
+  "symbols": [
+    { "id": "backend/app/features/price_tracking/service.py#apply_price_observation", "summary": "Records a successfully fetched price; now also the moment tracking turns itself on." },
+    { "id": "backend/app/features/price_tracking/service.py#disable_tracking", "summary": "The owner's off switch; now remembers that the owner said no." },
+    { "id": "backend/app/features/price_tracking/service.py#enable_tracking", "summary": "The owner's on switch: verifies the page live, clears the opt-out." },
+    { "id": "backend/app/features/price_tracking/service.py#record_check_failure", "summary": "Counts consecutive failures and pauses the item at 3, notifying the owner." },
+    { "id": "backend/app/features/price_tracking/service.py#get_items_due_for_check", "summary": "Every wishlisted item with a link that hasn't been checked for a day, minus opt-outs and paused ones." },
+    { "id": "backend/app/background/price_check.py#check_tracked_prices", "summary": "The scheduled job: groups due items by store and runs stores concurrently." },
+    { "id": "backend/app/background/price_check.py#_check_domain_group", "summary": "One store's items, one at a time with a 2–6 s jittered pause." },
+    { "id": "backend/app/background/price_check.py#_domain_key", "summary": "Which store a link belongs to, for grouping." },
+    { "id": "backend/app/background/price_check.py#check_one_item", "summary": "Checks one item in its own session and skips opt-outs and paused items." },
+    { "id": "backend/app/alembic/versions/f1a2b3c4d5e6_add_price_tracking_disabled_by_user.py#upgrade", "summary": "Adds the opt-out column, default false for every existing row." },
+    { "id": "backend/app/features/price_tracking/service.py#tracking_to_public", "summary": "What the API tells the drawer about tracking, now including the opt-out." },
+    { "id": "frontend/src/components/PriceTracking/PriceTrackingSection.tsx#PriceTrackingSection", "summary": "The drawer section: one contextual button instead of Track price." },
+    { "id": "backend/app/features/wishlist_item/models.py#WishlistItem", "entry": false },
+    { "id": "backend/app/alembic/versions/f1a2b3c4d5e6_add_price_tracking_disabled_by_user.py#downgrade", "entry": false },
+    { "id": "backend/app/features/price_tracking/service.py#tracking_to_public", "entry": false }
+  ],
+  "steps": [
+    { "title": "Tracking turns on when a check succeeds", "symbolId": "backend/app/features/price_tracking/service.py#apply_price_observation", "lines": { "start": 267, "end": 271 }, "body": "This is the whole idea in five lines. A price we could read proves the page is trackable, so a successful check enables tracking and clears any pause, unless the owner opted out." },
+    { "title": "The owner's no is now a fact in the database", "symbolId": "backend/app/features/price_tracking/service.py#disable_tracking", "lines": { "start": 511, "end": 511 }, "body": "Before this change \"off\" could mean three things. `price_tracking_disabled_by_user` names the one that must stick. The migration adds it with a default of false, which is where finding #1 lives." },
+    { "title": "The scheduler skips opt-outs and paused items", "symbolId": "backend/app/background/price_check.py#check_one_item", "lines": { "start": 55, "end": 60 }, "body": "Every item gets its own session, and an opt-out or a pause short-circuits before any request is made." },
+    { "title": "Grouped by store, stores in parallel", "symbolId": "backend/app/background/price_check.py#check_tracked_prices", "lines": { "start": 103, "end": 122 }, "body": "Due items are bucketed by `_domain_key`, then `asyncio.gather` runs one `_check_domain_group` per store, at most 8 at a time. The fetch is async (`await fetch_current_price`), so the concurrency is real." },
+    { "title": "Inside a store, nothing changed", "symbolId": "backend/app/background/price_check.py#_check_domain_group", "body": "Same serial loop and jittered delay as the old job, so any one site sees the same request pattern as before. That promise depends on `_domain_key` putting one site in one bucket (finding #2)." },
+    { "title": "Failing pages stop being retried", "symbolId": "backend/app/features/price_tracking/service.py#record_check_failure", "body": "Three consecutive failures pause the item and notify the owner, for items that never had a price too. Without this, automatic tracking would retry an unreadable page forever." }
+  ],
+  "notes": [
+    { "kind": "finding", "severity": "blocker", "category": "risk", "symbolId": "backend/app/alembic/versions/f1a2b3c4d5e6_add_price_tracking_disabled_by_user.py#upgrade", "lines": { "start": 19, "end": 27 },
+      "title": "Everyone who turned tracking off is opted back in",
+      "body": "The new column defaults to `false` for every existing row. An item whose owner switched tracking off before this change has `price_tracking_enabled = false` and no pause, which now reads as *not established yet*. The next daily check succeeds, `apply_price_observation` turns tracking back on, and price-change notifications resume for something the owner explicitly silenced.",
+      "fix": "Backfill in `upgrade()`: items that had a verified price and are off without a pause were turned off by their owner.",
+      "impact": "Owners who opted out start getting price notifications again the day this deploys, with no way to tell why.",
+      "suggestion": { "lines": { "start": 19, "end": 27 }, "code": "    op.add_column(\n        'wishlistitem',\n        sa.Column(\n            'price_tracking_disabled_by_user',\n            sa.Boolean(),\n            server_default='false',\n            nullable=False,\n        ),\n    )\n    # Off, not paused, and once verified: the owner turned it off.\n    op.execute(\n        \"UPDATE wishlistitem SET price_tracking_disabled_by_user = true \"\n        \"WHERE price_tracking_enabled = false AND price_tracking_paused_at IS NULL \"\n        \"AND price_verified_at IS NOT NULL\"\n    )" } },
+    { "kind": "finding", "severity": "concern", "category": "bug", "symbolId": "backend/app/background/price_check.py#_domain_key", "lines": { "start": 74, "end": 74 },
+      "title": "www.amazon.com and amazon.com count as two stores",
+      "body": "`urlparse(...).netloc.lower()` keeps `www.` and ports. Links pasted from different places for one store (`https://www.amazon.com/...` and `https://amazon.com/...`) land in two groups, so that store is hit concurrently, which is exactly what the grouping promises not to do.",
+      "fix": "Normalize the host: `urlparse(product_url).hostname or \"\"`, then strip a leading `www.`.",
+      "impact": "Bursts against the biggest store, the one most likely to rate-limit or block.",
+      "suggestion": { "lines": { "start": 74, "end": 74 }, "code": "    return (urlparse(product_url).hostname or \"\").removeprefix(\"www.\")" } },
+    { "kind": "decision", "symbolId": "backend/app/background/price_check.py#check_tracked_prices", "title": "Group by store instead of a global rate limiter",
+      "body": "Per-store groups keep each site's request pattern identical to the old serial job while total time shrinks with the number of stores.",
+      "alternatives": [
+        { "option": "One global queue with a smaller delay", "tradeoff": "Simplest, but every site sees faster requests, which is the scrape burst the delay exists to avoid." },
+        { "option": "A per-host token bucket shared across workers", "tradeoff": "Right at scale; heavy for one scheduler process checking a few hundred items a day." }
+      ] },
+    { "kind": "why", "symbolId": "backend/app/features/price_tracking/service.py#record_check_failure", "title": "Why 3 failures and not 5", "body": "With tracking automatic, every link is a candidate, including pages that never had a readable price. Five tries meant five days of pointless requests per unreadable link; three still rides out a one-off outage." },
+    { "kind": "question", "symbolId": "backend/app/background/price_check.py#check_tracked_prices", "title": "Is one scheduler process the expected deployment?", "body": "The concurrency cap and per-store serialization are per process. If the worker ever runs as more than one replica, each replica builds its own groups and the same store gets hit in parallel. I assumed one worker; is that right?" }
+  ],
+  "outgoingBody": "Nice change: automatic tracking with an explicit opt-out is the right model, and the per-store grouping keeps each site's request pattern exactly as it was.\n\nOne thing must change before this deploys: the migration opts everyone who turned tracking off back in. The store-key comment is a one-line normalization so one store can't land in two groups."
+}

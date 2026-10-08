@@ -5,9 +5,10 @@ import { execFileSync } from "node:child_process";
 import { structuredPatch } from "diff";
 import type { CodeSymbol, Range, Review } from "../domain/model.ts";
 import { diff, git, refSource, WORKTREE, worktreeSource, type FileSource, type Hunks } from "./analyze/git.ts";
-import { buildGraph, type Graph } from "./analyze/graph.ts";
+import { buildGraph, isTestFile, type Graph } from "./analyze/graph.ts";
 import { isTsLike } from "./analyze/ts-decls.ts";
 import { clearFsCache, TsProjects } from "./analyze/ts-project.ts";
+import { isPy, PyIndex } from "./analyze/py.ts";
 import type { FileChange } from "../domain/model.ts";
 
 export type Frame = {
@@ -33,6 +34,8 @@ export class Workspace {
   readonly newSrc: FileSource;
   readonly oldSrc: FileSource | null;
   private newProjects: TsProjects | null = null;
+  private pyNew: PyIndex | null = null;
+  private pyOld: PyIndex | null = null;
   private oldProjects: TsProjects | null = null;
   private hunks = new Map<string, Hunks>();
   private files: FileChange[] = [];
@@ -62,7 +65,9 @@ export class Workspace {
     // The analyzer's parsed programs become the hover service, so the first hover is instant.
     this.newProjects = new TsProjects(this.root, this.newSrc, this.files.filter((f) => f.status !== "deleted").map((f) => f.path));
     this.oldProjects = null;
-    const graph = buildGraph({ root: this.root, mode: this.review.mode, files: this.files, hunks: this.hunks, oldSrc: this.oldSrc, newSrc: this.newSrc, projects: this.newProjects });
+    this.pyNew = null;
+    this.pyOld = null;
+    const graph = buildGraph({ root: this.root, mode: this.review.mode, files: this.files, hunks: this.hunks, oldSrc: this.oldSrc, newSrc: this.newSrc, projects: this.newProjects, pyIndex: this.py("new") ?? undefined });
     return { files: this.files, graph };
   }
 
@@ -114,7 +119,30 @@ export class Workspace {
     return { symbolId: s.id, file: s.file, patch: [...header, ...body].join("\n") + "\n", added, deleted };
   }
 
+  private py(side: "new" | "old"): PyIndex | null {
+    if (side === "new") return (this.pyNew ??= new PyIndex(this.newSrc.files(), (f) => this.newSrc.read(f)));
+    const old = this.oldSrc;
+    if (!old) return null;
+    return (this.pyOld ??= new PyIndex(old.files(), (f) => old.read(f)));
+  }
+
+  /** Python: what the name under the cursor refers to, through the file's imports. */
+  private pyTarget(file: string, line: number, col: number, side: "new" | "old") {
+    const index = this.py(side);
+    const chain = index?.chainAt(file, line, col);
+    if (!index || !chain) return null;
+    const pf = index.get(file);
+    const own = pf?.decls.find((d) => d.defLine === line && d.name === chain.split(".").at(-1));
+    if (own) return { file, decl: own };
+    return index.resolve(file, chain, line);
+  }
+
   hover(file: string, line: number, col: number, side: "new" | "old"): Hover | null {
+    if (isPy(file)) {
+      const hit = this.pyTarget(file, line, col, side);
+      if (!hit) return null;
+      return { display: hit.decl.signature, docs: hit.decl.doc, tags: [], kind: hit.decl.kind };
+    }
     const project = this.projects(side)?.for(file);
     const pos = project?.position(file, line, col);
     if (!project || pos == null) return null;
@@ -134,6 +162,12 @@ export class Workspace {
   }
 
   definition(file: string, line: number, col: number, side: "new" | "old", symbols: CodeSymbol[]): Definition | null {
+    if (isPy(file)) {
+      const hit = this.pyTarget(file, line, col, side);
+      if (!hit) return null;
+      const sid = `${hit.file}#${hit.decl.key}`;
+      return { file: hit.file, line: hit.decl.defLine, symbolId: symbols.some((s) => s.id === sid) ? sid : null };
+    }
     if (!isTsLike(file)) return null;
     const project = this.projects(side)?.for(file);
     const pos = project?.position(file, line, col);
@@ -158,6 +192,12 @@ export class Workspace {
 
   /** Find the declaration around a line, for "add this to the map". */
   symbolAt(file: string, line: number): CodeSymbol | null {
+    if (isPy(file)) {
+      const pf = this.py("new")?.get(file);
+      const d = pf?.decls.filter((x) => line >= x.range.start && line <= x.range.end).sort((a, b) => a.range.end - a.range.start - (b.range.end - b.range.start))[0];
+      if (!d) return null;
+      return { id: `${file}#${d.key}`, name: d.name, container: d.container, kind: d.kind, file, range: d.range, oldFile: null, oldRange: null, status: "context", signature: d.signature, exported: d.exported, entry: false, summary: null, changedLines: 0, test: isTestFile(file) };
+    }
     const project = this.projects("new")?.for(file);
     const entry = project?.declsFor(file);
     if (!entry) return null;
@@ -180,6 +220,7 @@ export class Workspace {
       entry: false,
       summary: null,
       changedLines: 0,
+      test: isTestFile(file),
     };
   }
 }

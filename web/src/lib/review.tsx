@@ -88,6 +88,8 @@ export function ReviewProvider({ children }: { children: ReactNode }) {
     });
     setView("trail");
     setFocus({ symbolId: id, lines: opts?.lines ?? null, nonce: Date.now() });
+    // Leaving a step's ground ends the step.
+    setStepId((sid) => (sid && stateRef.current?.steps.find((s) => s.id === sid)?.symbolId === id ? sid : null));
   }, []);
 
   const openStep = useCallback(
@@ -114,6 +116,7 @@ export function ReviewProvider({ children }: { children: ReactNode }) {
         const idx = indexRef.current;
         setTrailState((prev) => (prev.includes(note.symbolId!) ? prev.slice(0, prev.indexOf(note.symbolId!) + 1) : pathFromEntry(idx, note.symbolId!)));
         setFocus({ symbolId: note.symbolId, lines: note.lines, nonce: Date.now() });
+        setStepId((sid) => (sid && stateRef.current?.steps.find((s) => s.id === sid)?.symbolId === note.symbolId ? sid : null));
         setView("trail");
       }
     },

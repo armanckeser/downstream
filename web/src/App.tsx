@@ -7,6 +7,7 @@ import { Overview } from "./components/overview.tsx";
 import { Trail } from "./components/trail.tsx";
 import { FlowMap } from "./components/map.tsx";
 import { Margin } from "./components/margin.tsx";
+import { SendReview } from "./components/send-review.tsx";
 
 const VIEWS: [View, string, string][] = [
   ["overview", "Overview", "o"],
@@ -17,6 +18,7 @@ const VIEWS: [View, string, string][] = [
 export function App() {
   const { state, error, view, setView, live, presence, openStep, stepId } = useReview();
   const [pane, setPane] = useState<"rail" | "main" | "margin">("main");
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -80,7 +82,19 @@ export function App() {
           )}
           {review?.head === "WORKTREE" && <Reread />}
           <span className="hidden font-mono text-2xs text-ink-3 sm:inline">{openThreads} open</span>
-          <VerdictButton current={myVerdict?.value ?? null} />
+          <button type="button" onClick={() => setSending(true)} className="press flex items-center gap-1.5 whitespace-nowrap rounded-md bg-ink px-2.5 py-1 text-[12.5px] font-medium text-page hover:bg-white">
+            {review?.published ? (
+              <>
+                <Check size={13} /> Sent
+              </>
+            ) : (
+              <>
+                {myVerdict ? "Review ready" : "Send"}
+                <span className="hidden sm:inline">{myVerdict ? "" : " review"}</span>
+              </>
+            )}
+          </button>
+          {sending && <SendReview onClose={() => setSending(false)} />}
         </div>
       </header>
 
@@ -111,66 +125,6 @@ export function App() {
           <Margin />
         </div>
       </div>
-    </div>
-  );
-}
-
-function VerdictButton({ current }: { current: "approve" | "changes" | "comment" | null }) {
-  const [open, setOpen] = useState(false);
-  const [body, setBody] = useState("");
-  const [busy, setBusy] = useState(false);
-  const submit = async (value: "approve" | "changes" | "comment") => {
-    setBusy(true);
-    try {
-      await action("review.verdict", { value, body });
-      setOpen(false);
-      setBody("");
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="relative">
-      <button type="button" onClick={() => setOpen((o) => !o)} className="press flex items-center gap-1.5 whitespace-nowrap rounded-md bg-ink px-2.5 py-1 text-[12.5px] font-medium text-page hover:bg-white" aria-expanded={open}>
-        {current ? (
-          <>
-            <Check size={13} /> {current === "approve" ? "Approved" : current === "changes" ? "Changes requested" : "Commented"}
-          </>
-        ) : (
-          <>
-            Finish<span className="hidden sm:inline"> review</span>
-          </>
-        )}
-      </button>
-      {open && (
-        <div className="fade-in absolute right-0 top-[calc(100%+6px)] z-40 w-80 rounded-lg border border-line bg-raised p-3 shadow-[0_12px_40px_-12px_rgb(0_0_0/0.7)]">
-          <label htmlFor="verdict-body" className="eyebrow">
-            Verdict
-          </label>
-          <textarea
-            id="verdict-body"
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            rows={3}
-            placeholder="Anything the agent should do next?"
-            className="mt-1.5 block w-full resize-none rounded-md border border-line bg-page px-2.5 py-2 text-[13px] text-ink placeholder:text-ink-4 focus:border-ink-4 focus:outline-none"
-          />
-          <div className="mt-2 grid grid-cols-[1fr_1fr_auto] gap-1.5">
-            <button type="button" disabled={busy} onClick={() => void submit("approve")} className="press rounded-md bg-ink px-2 py-1.5 text-[12.5px] font-medium text-page hover:bg-white">
-              Approve
-            </button>
-            <button type="button" disabled={busy} onClick={() => void submit("changes")} className="press rounded-md border border-line px-2 py-1.5 text-[12.5px] text-ink hover:bg-overlay">
-              Request changes
-            </button>
-            <button type="button" disabled={busy} onClick={() => void submit("comment")} className="press rounded-md px-2 py-1.5 text-[12.5px] text-ink-3 hover:bg-overlay hover:text-ink-2">
-              Comment
-            </button>
-          </div>
-          <button type="button" onClick={() => void action("review.done").then(() => setOpen(false))} className="press mt-2 w-full rounded-md px-2 py-1 text-[12px] text-ink-3 hover:bg-overlay hover:text-ink-2">
-            End the session (releases the agent)
-          </button>
-        </div>
-      )}
     </div>
   );
 }

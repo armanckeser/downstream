@@ -22,7 +22,7 @@ export function buildIndex(state: ReviewState): Index {
   for (const list of out.values()) list.sort((a, b) => (a.line ?? 1e9) - (b.line ?? 1e9));
   const notesBySymbol = new Map<string, Note[]>();
   for (const n of state.notes) if (n.symbolId) (notesBySymbol.get(n.symbolId) ?? notesBySymbol.set(n.symbolId, []).get(n.symbolId)!).push(n);
-  const entries = state.symbols.filter((s) => s.entry).sort(byPosition);
+  const entries = state.symbols.filter((s) => s.entry && !s.test).sort(byPosition);
   return { byId, out, into, notesBySymbol, entries };
 }
 

@@ -1,9 +1,12 @@
-// The overview: the change in one breath, before any code.
-import { ArrowRight } from "lucide-react";
+// The overview: the change in one breath, before any code. Only what needs a
+// decision is open; everything else is one line until you ask for it.
+import { useState, type ReactNode } from "react";
+import { ArrowRight, ChevronRight } from "lucide-react";
+import type { CodeSymbol, Note } from "@domain/model.ts";
 import { useReview } from "../lib/review.tsx";
 import { displayName, severityRank } from "../lib/graph.ts";
 import { Markdown } from "./markdown.tsx";
-import { NoteKindTag, SeverityMark, StatusMark } from "./marks.tsx";
+import { NoteKindTag, NoteNumber, SeverityMark, StatusMark } from "./marks.tsx";
 import { useHover } from "./hover.tsx";
 
 export function Overview() {
@@ -13,19 +16,32 @@ export function Overview() {
   const { review, files, symbols, notes, steps } = state;
   const additions = files.reduce((n, f) => n + f.additions, 0);
   const deletions = files.reduce((n, f) => n + f.deletions, 0);
-  const changed = symbols.filter((s) => s.status !== "context");
-  const findings = notes.filter((n) => n.kind === "finding" && n.status === "open").sort((a, b) => severityRank[a.severity ?? "concern"] - severityRank[b.severity ?? "concern"]);
+  const code = symbols.filter((s) => !s.test);
+  const changed = code.filter((s) => s.status !== "context");
+  const tests = symbols.filter((s) => s.test && s.status !== "context");
+  const findings = notes.filter((n) => n.kind === "finding" && n.status === "open").sort((a, b) => severityRank[a.severity ?? "concern"] - severityRank[b.severity ?? "concern"] || a.number - b.number);
+  const waiting = notes.filter((n) => n.kind === "question" && n.status === "open" && n.author === "agent");
   const decisions = notes.filter((n) => n.kind === "decision" || n.kind === "why");
-  const questions = notes.filter((n) => n.kind === "question" && n.status === "open");
   const counts = (["added", "modified", "removed"] as const).map((k) => [k, changed.filter((s) => s.status === k).length] as const).filter(([, n]) => n > 0);
-
   // The contracts this change introduces or alters: judge these before the code that fills them in.
-  const shapes = symbols.filter((s) => (s.kind === "interface" || s.kind === "type" || s.kind === "class") && (review.mode === "teach" ? s.exported : s.status !== "context"));
+  const shapes = code.filter((s) => (s.kind === "interface" || s.kind === "type" || s.kind === "class") && (review.mode === "teach" ? s.exported : s.status !== "context"));
+  const nonCode = changed.filter((s) => s.kind === "module");
 
   const start = () => (steps[0] ? openStep(steps[0].id) : index.entries[0] ? openSymbol(index.entries[0].id) : undefined);
+  const symbolButton = (s: CodeSymbol, children: ReactNode, className = "") => (
+    <button
+      type="button"
+      onClick={() => openSymbol(s.id)}
+      onPointerEnter={(e) => hover.show(e.currentTarget.getBoundingClientRect(), { type: "symbol", id: s.id })}
+      onPointerLeave={hover.hide}
+      className={`press w-full text-left ${className}`}
+    >
+      {children}
+    </button>
+  );
 
   return (
-    <div className="mx-auto max-w-[52rem] px-6 pb-24 pt-10 md:px-10">
+    <div className="mx-auto max-w-[50rem] px-6 pb-24 pt-10 md:px-10">
       <p className="font-mono text-2xs text-ink-3">
         {review.mode === "teach" ? "teaching" : review.pr ? `pull request #${review.pr}` : "change"}
         {review.base && (
@@ -60,6 +76,13 @@ export function Overview() {
             </dd>
           </div>
         ))}
+        {tests.length > 0 && (
+          <div>
+            <dd>
+              <span className="text-ink-2">{tests.length}</span> test{tests.length === 1 ? "" : "s"}
+            </dd>
+          </div>
+        )}
       </dl>
 
       <section className="mt-8">
@@ -71,7 +94,7 @@ export function Overview() {
           <div className="rounded-lg border border-dashed border-line px-4 py-3.5">
             <p className="text-[13.5px] text-ink-2">The agent is reading the change and hasn't written its summary yet.</p>
             <p className="mt-1 text-[12.5px] text-ink-3">
-              It will appear here as soon as it runs <code className="font-mono text-ink-2">downstream apply</code>. The map already works: the analyzer found {changed.length} changed symbols.
+              It appears here as soon as it runs <code className="font-mono text-ink-2">downstream apply</code>. The map already works: {changed.length} changed symbols.
             </p>
           </div>
         )}
@@ -81,123 +104,166 @@ export function Overview() {
         </button>
       </section>
 
-      <div className="mt-12 grid gap-x-10 gap-y-10 md:grid-cols-[1.25fr_1fr]">
-        <section>
-          <h2 className="eyebrow border-b border-line-subtle pb-2">Doors into this change</h2>
-          <ul className="divide-y divide-line-subtle">
-            {index.entries.map((s) => (
-              <li key={s.id}>
-                <button
-                  type="button"
-                  onClick={() => openSymbol(s.id)}
-                  onPointerEnter={(e) => hover.show(e.currentTarget.getBoundingClientRect(), { type: "symbol", id: s.id })}
-                  onPointerLeave={hover.hide}
-                  className="press group w-full py-2.5 text-left"
-                >
-                  <span className="flex items-center gap-2">
-                    <StatusMark status={s.status} />
-                    <span className="font-mono text-[13px] text-ink group-hover:underline group-hover:decoration-ink-4 group-hover:underline-offset-4">{displayName(s)}</span>
-                    <span className="truncate font-mono text-2xs text-ink-3">{s.file}</span>
-                  </span>
-                  {s.summary && <span className="mt-0.5 block pl-[18px] text-[13px] text-ink-3">{s.summary}</span>}
-                </button>
-              </li>
-            ))}
-            {index.entries.length === 0 && <li className="py-2.5 text-[13px] text-ink-3">None marked yet.</li>}
-          </ul>
-        </section>
-
-        <section>
-          <h2 className="eyebrow flex border-b border-line-subtle pb-2">
-            Needs your eyes <span className="ml-auto font-mono normal-case tracking-normal text-ink-4">{findings.length + questions.length}</span>
-          </h2>
-          <ul className="divide-y divide-line-subtle">
-            {[...findings, ...questions].map((n) => (
-              <li key={n.id}>
-                <button type="button" onClick={() => openNote(n.id)} className="press flex w-full items-baseline gap-2 py-2.5 text-left">
-                  {n.kind === "finding" ? <SeverityMark severity={n.severity} author={n.author} /> : <span className="size-2 shrink-0 rounded-full bg-ink-3" />}
-                  <span className="text-[13px] leading-snug text-ink">{n.title}</span>
-                </button>
-              </li>
-            ))}
-            {findings.length + questions.length === 0 && <li className="py-2.5 text-[13px] text-ink-3">Nothing flagged.</li>}
-          </ul>
-
-          {decisions.length > 0 && (
-            <>
-              <h2 className="eyebrow mt-8 border-b border-line-subtle pb-2">Choices made</h2>
-              <ul className="divide-y divide-line-subtle">
-                {decisions.map((n) => (
-                  <li key={n.id}>
-                    <button type="button" onClick={() => openNote(n.id)} className="press flex w-full items-baseline gap-2 py-2.5 text-left">
-                      <NoteKindTag note={n} />
-                      <span className="text-[13px] leading-snug text-ink-2">{n.title}</span>
-                      {n.alternatives.length > 0 && <span className="ml-auto shrink-0 font-mono text-2xs text-ink-4">vs {n.alternatives.length}</span>}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </section>
-      </div>
-      {shapes.length > 0 && (
+      {(findings.length > 0 || waiting.length > 0) && (
         <section className="mt-12">
           <h2 className="eyebrow flex border-b border-line-subtle pb-2">
-            Shapes {review.mode === "teach" ? "it exposes" : "this change introduces or alters"}
-            <span className="ml-auto font-mono normal-case tracking-normal text-ink-4">{shapes.length}</span>
+            Needs your eyes <span className="ml-auto font-mono normal-case tracking-normal text-ink-4">{findings.length + waiting.length}</span>
           </h2>
           <ul className="divide-y divide-line-subtle">
-            {shapes.map((s) => {
-              const users = (index.into.get(s.id) ?? []).length;
-              const choice = (index.notesBySymbol.get(s.id) ?? []).find((n) => n.kind === "decision" || n.kind === "why");
-              return (
-                <li key={s.id}>
-                  <button
-                    type="button"
-                    onClick={() => openSymbol(s.id)}
-                    onPointerEnter={(e) => hover.show(e.currentTarget.getBoundingClientRect(), { type: "symbol", id: s.id })}
-                    onPointerLeave={hover.hide}
-                    className="press grid w-full grid-cols-[minmax(0,1fr)_auto] gap-x-4 py-3 text-left"
-                  >
-                    <span className="min-w-0">
-                      <span className="flex items-center gap-2">
-                        <StatusMark status={s.status} />
-                        <span className="font-mono text-[13px] text-ink">{s.name}</span>
-                        <span className="truncate font-mono text-2xs text-ink-3">{s.file}</span>
-                      </span>
-                      {s.signature && <pre className="mt-1.5 max-h-28 overflow-hidden whitespace-pre-wrap pl-[18px] font-mono text-[11.5px] leading-[18px] text-ink-3">{s.signature}</pre>}
-                      {choice && (
-                        <span className="mt-1.5 flex items-baseline gap-2 pl-[18px]">
-                          <NoteKindTag note={choice} />
-                          <span className="text-[12.5px] text-ink-2">{choice.title}</span>
-                        </span>
-                      )}
+            {[...findings, ...waiting].map((n) => (
+              <li key={n.id}>
+                <button type="button" onClick={() => openNote(n.id)} className="press grid w-full grid-cols-[2.25rem_minmax(0,1fr)] items-baseline py-2.5 text-left">
+                  <NoteNumber note={n} />
+                  <span className="min-w-0">
+                    <span className="flex items-baseline gap-2">
+                      {n.kind === "finding" ? <SeverityMark severity={n.severity} author={n.author} /> : <span className="size-2 shrink-0 rounded-full bg-agent/70" />}
+                      <NoteKindTag note={n} />
+                      <span className="text-[13.5px] leading-snug text-ink">{n.title}</span>
                     </span>
-                    <span className="pt-0.5 font-mono text-2xs text-ink-3">
-                      {users ? (
-                        <>
-                          used by <span className="text-ink-2">{users}</span>
-                        </>
-                      ) : (
-                        "unused yet"
-                      )}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
+                    {n.kind === "question" && <span className="mt-0.5 block pl-4 text-[12.5px] text-ink-3">The agent needs your answer to judge this.</span>}
+                  </span>
+                </button>
+              </li>
+            ))}
           </ul>
         </section>
       )}
 
+      <section className="mt-10">
+        <h2 className="eyebrow border-b border-line-subtle pb-2">Doors into this change</h2>
+        <ul className="divide-y divide-line-subtle">
+          {index.entries.map((s) => (
+            <li key={s.id}>
+              {symbolButton(
+                s,
+                <>
+                  <span className="flex items-center gap-2">
+                    <StatusMark status={s.status} />
+                    <span className="font-mono text-[13px] text-ink">{displayName(s)}</span>
+                    <span className="truncate font-mono text-2xs text-ink-3">{s.file}</span>
+                  </span>
+                  {s.summary && <span className="mt-0.5 block pl-[18px] text-[13px] text-ink-3">{s.summary}</span>}
+                </>,
+                "py-2.5",
+              )}
+            </li>
+          ))}
+          {index.entries.length === 0 && <li className="py-2.5 text-[13px] text-ink-3">None marked yet.</li>}
+        </ul>
+      </section>
+
+      <div className="mt-8 border-t border-line-subtle">
+        {shapes.length > 0 && (
+          <Fold label={review.mode === "teach" ? "Shapes it exposes" : "Shapes introduced or altered"} count={shapes.length} preview={shapes.map((s) => s.name).join(", ")}>
+            <ul className="divide-y divide-line-subtle">
+              {shapes.map((s) => {
+                const users = (index.into.get(s.id) ?? []).filter((e) => !index.byId.get(e.from)?.test).length;
+                const choice = (index.notesBySymbol.get(s.id) ?? []).find((n) => n.kind === "decision" || n.kind === "why");
+                return (
+                  <li key={s.id}>
+                    {symbolButton(
+                      s,
+                      <span className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4">
+                        <span className="min-w-0">
+                          <span className="flex items-center gap-2">
+                            <StatusMark status={s.status} />
+                            <span className="font-mono text-[13px] text-ink">{s.name}</span>
+                            <span className="truncate font-mono text-2xs text-ink-3">{s.file}</span>
+                          </span>
+                          {s.signature && <pre className="mt-1.5 max-h-28 overflow-hidden whitespace-pre-wrap pl-[18px] font-mono text-[11.5px] leading-[18px] text-ink-3">{s.signature}</pre>}
+                          {choice && (
+                            <span className="mt-1.5 flex items-baseline gap-2 pl-[18px]">
+                              <NoteKindTag note={choice} />
+                              <span className="text-[12.5px] text-ink-2">{choice.title}</span>
+                            </span>
+                          )}
+                        </span>
+                        <span className="pt-0.5 font-mono text-2xs text-ink-3">{users ? `used by ${users}` : "unused yet"}</span>
+                      </span>,
+                      "py-3",
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </Fold>
+        )}
+        {decisions.length > 0 && (
+          <Fold label="Choices made" count={decisions.length} preview={decisions.map((n) => n.title).join(" · ")}>
+            <NoteList notes={decisions} onOpen={openNote} />
+          </Fold>
+        )}
+        {tests.length > 0 && (
+          <Fold label="Tests" count={tests.length} preview={tests.map((s) => s.name).join(", ")}>
+            <ul className="divide-y divide-line-subtle">
+              {tests.map((s) => (
+                <li key={s.id}>
+                  {symbolButton(
+                    s,
+                    <span className="flex items-center gap-2">
+                      <StatusMark status={s.status} />
+                      <span className="font-mono text-[12.5px] text-ink-2">{displayName(s)}</span>
+                      <span className="truncate font-mono text-2xs text-ink-4">{s.file}</span>
+                    </span>,
+                    "py-2",
+                  )}
+                </li>
+              ))}
+            </ul>
+          </Fold>
+        )}
+        {nonCode.length > 0 && (
+          <Fold label="Other files" count={nonCode.length} preview={nonCode.map((s) => s.file).join(", ")}>
+            <ul className="divide-y divide-line-subtle">
+              {nonCode.map((s) => (
+                <li key={s.id}>{symbolButton(s, <span className="font-mono text-[12.5px] text-ink-2">{s.file}</span>, "py-2")}</li>
+              ))}
+            </ul>
+          </Fold>
+        )}
+      </div>
     </div>
+  );
+}
+
+/** One line until opened: label, count, and a preview of what's inside. */
+function Fold({ label, count, preview, children }: { label: string; count: number; preview: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <section className="border-b border-line-subtle">
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className="press grid w-full grid-cols-[auto_auto_minmax(0,1fr)] items-baseline gap-3 py-3 text-left">
+        <span className="eyebrow flex items-center gap-1.5">
+          <ChevronRight size={12} className={`transition-transform duration-150 ${open ? "rotate-90" : ""}`} />
+          {label}
+        </span>
+        <span className="font-mono text-2xs text-ink-4">{count}</span>
+        {!open && <span className="truncate text-[12.5px] text-ink-3">{preview}</span>}
+      </button>
+      {open && <div className="fade-in pb-4">{children}</div>}
+    </section>
+  );
+}
+
+function NoteList({ notes, onOpen }: { notes: Note[]; onOpen: (id: string) => void }) {
+  return (
+    <ul className="divide-y divide-line-subtle">
+      {notes.map((n) => (
+        <li key={n.id}>
+          <button type="button" onClick={() => onOpen(n.id)} className="press flex w-full items-baseline gap-2 py-2.5 text-left">
+            <NoteNumber note={n} />
+            <NoteKindTag note={n} />
+            <span className="text-[13px] leading-snug text-ink-2">{n.title}</span>
+            {n.alternatives.length > 0 && <span className="ml-auto shrink-0 font-mono text-2xs text-ink-4">vs {n.alternatives.length}</span>}
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
 function OverviewSkeleton() {
   return (
-    <div className="mx-auto max-w-[52rem] space-y-3 px-10 pt-12" aria-busy>
+    <div className="mx-auto max-w-[50rem] space-y-3 px-10 pt-12" aria-busy>
       <div className="h-3 w-40 rounded bg-pane" />
       <div className="h-7 w-2/3 rounded bg-pane" />
       <div className="mt-8 h-24 rounded bg-pane" />

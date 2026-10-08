@@ -63,6 +63,7 @@ export function FlowMap() {
   const hover = useHover();
   const [showContext, setShowContext] = useState(true);
   const [showTypes, setShowTypes] = useState(false);
+  const [showTests, setShowTests] = useState(false);
   const [hot, setHot] = useState<string | null>(null);
   const [view, setView] = useState({ x: 0, y: 0, k: 1 });
   const wrap = useRef<HTMLDivElement>(null);
@@ -105,7 +106,7 @@ export function FlowMap() {
       for (const e of index.into.get(center) ?? []) keep.add(e.from);
       pool = pool.filter((s) => keep.has(s.id));
     }
-    let syms = pool.filter((s) => (showContext || s.status !== "context") && (showTypes || !typeKinds.has(s.kind)));
+    let syms = pool.filter((s) => (showContext || s.status !== "context") && (showTypes || !typeKinds.has(s.kind)) && (showTests || !s.test));
     const ids = new Set(syms.map((s) => s.id));
     const es = state.edges.filter((e) => ids.has(e.from) && ids.has(e.to) && (showTypes || e.kind !== "uses"));
     // Drop unchanged symbols that ended up with nothing to connect to.
@@ -115,7 +116,7 @@ export function FlowMap() {
     const loose = syms.filter((s) => !linked.has(s.id) && !s.entry);
     const looseIds = new Set(loose.map((s) => s.id));
     return { symbols: syms.filter((s) => !looseIds.has(s.id)), edges: es, loose };
-  }, [state, index, showContext, showTypes, effective, curated, center]);
+  }, [state, index, showContext, showTypes, showTests, effective, curated, center]);
 
   const laid = useMemo(() => layout(symbols, edges), [symbols, edges]);
 
@@ -309,6 +310,7 @@ export function FlowMap() {
           )}
           <Toggle on={showContext} onClick={() => setShowContext((v) => !v)} label="Unchanged neighbors" />
           <Toggle on={showTypes} onClick={() => setShowTypes((v) => !v)} label="Types" />
+          {state.symbols.some((s) => s.test) && <Toggle on={showTests} onClick={() => setShowTests((v) => !v)} label="Tests" />}
           <button type="button" onClick={fit} className="press rounded-md p-1.5 text-ink-3 hover:bg-overlay hover:text-ink" title="Fit to view">
             <Maximize2 size={13} />
           </button>

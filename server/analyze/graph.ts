@@ -7,6 +7,8 @@ import type { CodeSymbol, Edge, EdgeKind, FileChange, Range } from "../../domain
 import { countInRange, inRanges, type FileSource, type Hunks } from "./git.ts";
 import { calleeNames, enclosing, extractDecls, isTsLike, parse, type Decl } from "./ts-decls.ts";
 import { TsProjects, type TsProject } from "./ts-project.ts";
+import { isPy, PyIndex } from "./py.ts";
+import { pyEdges, pySymbols, type PyChanged } from "./py-graph.ts";
 
 export type GraphInput = {
   root: string;
@@ -17,6 +19,7 @@ export type GraphInput = {
   newSrc: FileSource;
   /** Reuse an existing project set (the workspace keeps it for hover). */
   projects?: TsProjects;
+  pyIndex?: PyIndex;
 };
 
 export type Graph = { symbols: CodeSymbol[]; edges: Edge[] };
@@ -24,8 +27,14 @@ export type Graph = { symbols: CodeSymbol[]; edges: Edge[] };
 const MAX_CALLERS = 12;
 const symbolId = (file: string, key: string) => `${file}#${key}`;
 
-function toSymbol(file: string, d: Decl, status: CodeSymbol["status"], changedLines = 0): CodeSymbol {
+type DeclLike = Pick<Decl, "key" | "name" | "container" | "kind" | "range" | "signature" | "exported">;
+
+const TEST_FILE = /(^|\/)(tests?|__tests__|spec)\/|(^|\/)test_[^/]*\.py$|_test\.(py|go)$|\.(test|spec)\.[cm]?[jt]sx?$|(^|\/)conftest\.py$/;
+export const isTestFile = (file: string) => TEST_FILE.test(file);
+
+function toSymbol(file: string, d: DeclLike, status: CodeSymbol["status"], changedLines = 0): CodeSymbol {
   return {
+    test: isTestFile(file),
     id: symbolId(file, d.key),
     name: d.name,
     container: d.container,
@@ -71,8 +80,13 @@ export function buildGraph(input: GraphInput): Graph {
 
   // 1. Symbols per file.
   const changedDecls: { file: string; decl: Decl; symbol: CodeSymbol }[] = [];
+  const pyChanged: PyChanged[] = [];
   for (const f of input.files) {
     const hunks = input.hunks.get(f.path) ?? { added: [], deleted: [] };
+    if (isPy(f.path)) {
+      pyChanged.push(...pySymbols(input, f, hunks, toSymbol, symbols));
+      continue;
+    }
     if (!isTsLike(f.path)) {
       symbols.set(...moduleSymbol(f, hunks, input));
       continue;
@@ -129,7 +143,13 @@ export function buildGraph(input: GraphInput): Graph {
     const checker = project.program().getTypeChecker();
     let sym = checker.getSymbolAtLocation(node);
     if (sym && sym.flags & ts.SymbolFlags.Alias) sym = checker.getAliasedSymbol(sym);
-    const target = sym?.valueDeclaration ?? sym?.declarations?.[0];
+    let target = sym?.valueDeclaration ?? sym?.declarations?.[0];
+    // Services return `{ createGrant, patchGrant }`; follow the shorthand to the function itself.
+    if (target && ts.isShorthandPropertyAssignment(target)) {
+      target = checker.getShorthandAssignmentValueSymbol(target)?.valueDeclaration ?? target;
+    } else if (target && ts.isPropertyAssignment(target) && ts.isIdentifier(target.initializer)) {
+      target = checker.getSymbolAtLocation(target.initializer)?.valueDeclaration ?? target;
+    }
     if (!target) return null;
     const sf = target.getSourceFile();
     const rel = project.rel(sf.fileName);
@@ -207,14 +227,27 @@ export function buildGraph(input: GraphInput): Graph {
       const entry = project?.declsFor(file);
       const live = entry?.decls.find((d) => d.key === decl.key);
       if (!project || !entry || !live?.nameNode) continue;
-      let refs: readonly ts.ReferencedSymbol[] | undefined;
-      try {
-        refs = project.service.findReferences(project.abs(file), live.nameNode.getStart(entry.sf));
-      } catch {
-        continue;
+      // Where to ask for references: the declaration, plus (for a lifted service function) the
+      // `return { patchGrant }` shorthand that callers actually reach through `store.patchGrant(...)`.
+      const positions = [live.nameNode.getStart(entry.sf)];
+      if (live.container) {
+        const holder = entry.decls.find((d) => d.key === live.container);
+        const visit = (n: ts.Node) => {
+          if (ts.isShorthandPropertyAssignment(n) && n.name.text === live.name) positions.push(n.name.getStart(entry.sf));
+          ts.forEachChild(n, visit);
+        };
+        if (holder) visit(holder.node);
+      }
+      const refs: ts.ReferencedSymbol[] = [];
+      for (const at of positions) {
+        try {
+          refs.push(...(project.service.findReferences(project.abs(file), at) ?? []));
+        } catch {
+          /* a reference search that throws just finds nothing */
+        }
       }
       let count = 0;
-      for (const group of refs ?? []) {
+      for (const group of refs) {
         for (const ref of group.references) {
           if (ref.isDefinition || count >= MAX_CALLERS) continue;
           const rel = project.rel(ref.fileName);
@@ -263,15 +296,20 @@ export function buildGraph(input: GraphInput): Graph {
   }
 
   lap("callers+removed");
+  if (pyChanged.length) {
+    const index = input.pyIndex ?? new PyIndex(input.newSrc.files(), (f) => input.newSrc.read(f));
+    pyEdges(input, index, pyChanged, symbols, toSymbol, addEdge);
+    lap("python");
+  }
   // 5. Doors: changed symbols nothing else in the change calls.
   const all = [...symbols.values()];
   const changed = new Set(all.filter((s) => s.status !== "context").map((s) => s.id));
   for (const s of all) {
-    if (s.status === "removed" || s.kind === "type" || s.kind === "interface" || s.kind === "module" || s.kind === "const") continue;
+    if (s.test || s.status === "removed" || s.kind === "type" || s.kind === "interface" || s.kind === "module" || s.kind === "const") continue;
     const scope = input.mode === "teach" ? true : changed.has(s.id);
     if (!scope) continue;
     const incoming = [...edges.values()].filter(
-      (e) => e.to === s.id && e.kind !== "uses" && e.change !== "removed" && (input.mode === "teach" || changed.has(e.from)),
+      (e) => e.to === s.id && e.kind !== "uses" && e.change !== "removed" && !symbols.get(e.from)?.test && (input.mode === "teach" || changed.has(e.from)),
     );
     s.entry = incoming.length === 0 && s.name !== "constructor" && (input.mode === "diff" || s.exported || s.kind === "route");
   }
@@ -336,6 +374,7 @@ function moduleSymbol(f: FileChange, hunks: Hunks, input: GraphInput): [string, 
       entry: false,
       summary: null,
       changedLines: f.additions + f.deletions,
+      test: isTestFile(f.path),
     },
   ];
 }

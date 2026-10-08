@@ -215,6 +215,47 @@ export function extractDecls(sf: ts.SourceFile): Decl[] {
     }
   }
 
+  // Big containers (Effect service layers, app builders, factories) define their real units as inner
+  // named functions: `const patchGrant = Effect.fn(...)(function* ...)`. Lift those out as members so a
+  // reviewer can open the unit that changed. Components are left whole; their handlers read best in place.
+  const NESTED_MIN_LINES = 40;
+  for (const d of [...out]) {
+    if (d.kind === "component" || d.range.end - d.range.start < NESTED_MIN_LINES) continue;
+    const owned = (n: ts.Node) => d.memberRanges.some((r) => lines(sf, n).start >= r.start && lines(sf, n).end <= r.end);
+    const visit = (n: ts.Node) => {
+      let name: string | null = null;
+      let body: ts.Node | undefined;
+      if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && (isFunctionLike(n.initializer) || wrapsFunction(n.initializer))) {
+        name = n.name.text;
+        body = isFunctionLike(n.initializer) ? n.initializer.body : undefined;
+      } else if (ts.isFunctionDeclaration(n) && n.name) {
+        name = n.name.text;
+        body = n.body;
+      }
+      if (name && !owned(n)) {
+        const range = lines(sf, n);
+        if (range.end > range.start) {
+          d.memberRanges.push(range);
+          out.push({
+            key: `${d.name}.${name}`,
+            name,
+            container: d.name,
+            kind: "method",
+            node: n,
+            nameNode: (n as ts.VariableDeclaration | ts.FunctionDeclaration).name ?? null,
+            range,
+            exported: d.exported,
+            signature: body ? headText(sf, n, body) : squash(blockText(sf, n, 1)).slice(0, 200),
+            memberRanges: [],
+          });
+          return;
+        }
+      }
+      ts.forEachChild(n, visit);
+    };
+    ts.forEachChild(d.node, visit);
+  }
+
   // Route registrations anywhere in the file: app.get("/x", handler).
   const visit = (node: ts.Node) => {
     if (

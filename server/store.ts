@@ -41,6 +41,8 @@ CREATE VIEW IF NOT EXISTS v_notes AS SELECT review_id, id, json_extract(data,'$.
 CREATE VIEW IF NOT EXISTS v_replies AS SELECT review_id, id, note_id, json_extract(data,'$.author') AS author, json_extract(data,'$.body') AS body, created_at FROM replies;
 `;
 
+const NOTE_DEFAULTS = { number: 0, category: null, fix: "", impact: "", outgoing: null } as const;
+
 export const now = () => new Date().toISOString();
 export const newId = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 8)}${Date.now().toString(36).slice(-3)}`;
 
@@ -74,7 +76,7 @@ export class Store {
 
   review(id: string): Review | null {
     const row = this.db.prepare("SELECT data FROM reviews WHERE id = ?").get(id) as { data: string } | undefined;
-    return row ? JSON.parse(row.data) : null;
+    return row ? { outgoingBody: "", published: null, ...JSON.parse(row.data) } : null;
   }
 
   reviewRoot(id: string): string | null {
@@ -188,13 +190,19 @@ export class Store {
       (r) => JSON.parse(r.data) as Reply,
     );
     const byNote = Map.groupBy(replies, (r) => r.noteId);
-    return notes.map((n) => ({ ...n, replies: byNote.get(n.id) ?? [] }));
+    // Reviews from before numbering get numbers in creation order.
+    let next = Math.max(0, ...notes.map((n) => n.number ?? 0));
+    return notes.map((n) => ({ ...NOTE_DEFAULTS, ...n, number: n.number || ++next, replies: byNote.get(n.id) ?? [] }));
+  }
+
+  nextNoteNumber(reviewId: string): number {
+    return Math.max(0, ...this.notes(reviewId).map((n) => n.number)) + 1;
   }
 
   note(reviewId: string, id: string): Note | null {
     const row = this.db.prepare("SELECT data FROM notes WHERE review_id = ? AND id = ?").get(reviewId, id) as { data: string } | undefined;
     if (!row) return null;
-    const note = JSON.parse(row.data) as Note;
+    const note = { ...NOTE_DEFAULTS, ...(JSON.parse(row.data) as Note) };
     const replies = (this.db.prepare("SELECT data FROM replies WHERE review_id = ? AND note_id = ? ORDER BY created_at").all(reviewId, id) as { data: string }[]).map(
       (r) => JSON.parse(r.data) as Reply,
     );

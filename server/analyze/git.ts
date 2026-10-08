@@ -29,6 +29,8 @@ export interface FileSource {
   readonly label: string;
   read(file: string): string | null;
   exists(file: string): boolean;
+  /** Every file on this side, repo-relative. */
+  files(): string[];
 }
 
 export function worktreeSource(root: string): FileSource {
@@ -39,10 +41,16 @@ export function worktreeSource(root: string): FileSource {
       return existsSync(abs) ? readFileSync(abs, "utf8") : null;
     },
     exists: (file) => existsSync(path.join(root, file)),
+    files: () => [
+      ...new Set([
+        ...git(root, ["ls-files"]).split("\n"),
+        ...git(root, ["ls-files", "--others", "--exclude-standard"]).split("\n"),
+      ]),
+    ].filter(Boolean),
   };
 }
 
-const PRELOAD = /\.(m|c)?(t|j)sx?$|\.json$/;
+const PRELOAD = /\.(m|c)?(t|j)sx?$|\.json$|\.pyi?$/;
 
 /**
  * Files at a commit. A type checker reads hundreds of files, and one `git show`
@@ -79,6 +87,7 @@ export function refSource(root: string, ref: string): FileSource {
       return cache.get(file) ?? null;
     },
     exists: (file) => tree().has(file),
+    files: () => [...tree().keys()],
   };
 }
 
