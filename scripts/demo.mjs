@@ -89,7 +89,13 @@ await page.keyboard.press("m");
 await wait(1600);
 const node = page.locator("[data-node]").filter({ hasText: "openFirst" }).first();
 await cursor(node);
-await wait(2400);
+await wait(2000);
+
+// What you agreed on, as the author will read it.
+const sendButton = page.getByRole("button", { name: /^(Send|Review ready)/ }).first();
+await cursor(sendButton);
+await sendButton.click();
+await wait(3000);
 
 await ctx.close();
 await browser.close();

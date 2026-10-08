@@ -2,7 +2,7 @@
 
 Code review that reads a change the way it runs.
 
-Ask your coding agent to review a pull request, or to explain part of the codebase, and Downstream opens next to it: the change laid out from its entry points, each call one click deeper, the agent's reasons pinned to the lines they're about, and a margin where you talk it through with the agent while it listens.
+Ask your coding agent to review a pull request, or to explain part of the codebase, and Downstream opens next to it: the change laid out from its entry points, each call one click deeper, the agent's reasons pinned to the lines they're about, and a margin where you talk it through with the agent while it listens. When you agree, the review you arrived at goes to the pull request: your verdict, your words, inline comments the author can apply in one click.
 
 ![A review in Downstream: the agent's walkthrough lands live, a type hover, following a call, a question answered in the margin, the flow map](docs/demo.gif)
 
@@ -16,6 +16,7 @@ Downstream gives the change that shape:
 - **Trail.** Open a door and its code appears scoped to just that symbol, numbered like the real file. Click a call and the callee opens below it; the frame above folds to the one line that made the call. You read down the stack the way the code runs.
 - **Margin.** The agent writes `why` notes where a careful reader would stop, `decision` notes with the alternatives that lost, and findings with a severity and a failure scenario. You select lines and ask. It answers in the margin while you keep reading.
 - **Map.** The whole change as a system, left to right from its doors: what's new, what's changed, which calls are new, and which existing code reaches in.
+- **Send.** Findings are numbered (*fix 2 and 5*) and carry the problem, the smallest fix and what happens if you ship anyway. Each thread decides whether it reaches the author and in what words; the conversation stays private. Send review shows the exact review GitHub will get and posts it only when you confirm.
 
 Hover anything in the code for its real TypeScript type and docs. Hover a symbol on the map or in a note for its purpose, callers, calls and open findings.
 
@@ -23,6 +24,8 @@ Hover anything in the code for its real TypeScript type and docs. Hover a symbol
 |---|---|
 | ![The overview: the agent's summary, the doors into the change, findings and choices](docs/overview.png) | ![The trail: a step of the walkthrough, a symbol's code with pinned findings and a live type hover](docs/trail.png) |
 | ![A question in the margin, answered by the agent](docs/conversation.png) | ![The flow map, laid out from the change's entry points](docs/map.png) |
+
+![Send review: the verdict, the words for the author, and each inline comment exactly as GitHub will get it](docs/send.png)
 
 ## How it works with an agent
 
@@ -34,8 +37,10 @@ downstream show                  # the agent reads the map: doors, symbols, edge
 downstream code pickNow          # and the code, numbered, with +/- marks and callers
 downstream apply plan.json       # it writes the walkthrough: summary, steps, why, decisions, findings
 downstream wait                  # then listens; returns when you ask, reply, resolve or finish
-downstream reply n_x2 "…"        # and answers in the margin
+downstream reply 2 "…"           # and answers in the margin
 downstream go openFirst          # or moves your view to what it's talking about
+downstream outgoing 2 "…"        # words a finding for the author (or --exclude keeps it private)
+downstream draft                 # the review exactly as it would be sent; you press Send
 ```
 
 `downstream open --teach src/sync` does the same for existing code: no diff, a tour of how one request moves through that part of the system.
@@ -65,7 +70,7 @@ Then ask Claude Code to review something: *"help me review this branch"*, *"revi
 
 Requires Node 22.13 or newer and git. `--pr` uses the GitHub CLI.
 
-**Languages.** TypeScript and JavaScript get the full treatment: symbols, call resolution, callers, hovers. Other languages arrive as one symbol per changed file; the agent splits them into real functions and draws the edges (`addSymbols`, `edges` in `apply`).
+**Languages.** TypeScript and JavaScript go through the compiler: symbols, call resolution, callers, real types on hover. Python is read from indentation and imports: functions, classes and methods with decorators and docstrings, FastAPI/Flask routes as doors, calls through imports and `self`, callers across the repo, signatures and docstrings on hover. Tests in either are marked as tests. Other languages arrive as one symbol per changed file; the agent splits them into real functions and draws the edges (`addSymbols`, `edges` in `apply`).
 
 ## Development
 
@@ -83,6 +88,8 @@ DOWNSTREAM_API=http://127.0.0.1:4317 npm run dev:web   # UI with hot reload agai
 | `domain/model.ts` | The review model, shared by server, CLI and browser |
 | `server/analyze/` | Git sides, TypeScript declarations, the flow graph |
 | `server/actions.ts` | Every action, defined once |
+| `server/publish.ts` | The review as the PR author sees it, and sending it |
+| `server/analyze/py.ts` | Python declarations, imports and calls |
 | `server/main.ts` | HTTP, SSE, `wait` |
 | `cli/downstream.ts` | The agent's CLI |
 | `web/src/` | The review surface (React, Tailwind, [Pierre diffs](https://diffs.com) and [trees](https://www.npmjs.com/package/@pierre/trees), dagre) |

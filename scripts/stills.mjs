@@ -25,4 +25,8 @@ await p.waitForTimeout(1200);
 await p.locator("[data-node]").filter({ hasText: "openFirst" }).first().hover();
 await p.waitForTimeout(1200);
 await p.screenshot({ path: `${out}/map.png` });
+await p.mouse.move(700, 80);
+await p.getByRole("button", { name: /^(Send|Review ready)/ }).first().click();
+await p.waitForTimeout(1500);
+await p.screenshot({ path: `${out}/send.png` });
 await b.close();

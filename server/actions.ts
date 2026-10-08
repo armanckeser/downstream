@@ -499,6 +499,7 @@ defineAction({
   input: NavigateCommand,
   run(ctx, input) {
     if (input.symbolId) input.symbolId = requireSymbol(ctx, input.symbolId).id;
+    if (input.noteId) input.noteId = requireNote(ctx, input.noteId).id;
     const cmd = { ...input, nonce: newId("nav") };
     ctx.store.emit(ctx.reviewId, "navigate", ctx.actor, cmd);
     return cmd;
