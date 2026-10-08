@@ -454,29 +454,37 @@ defineAction({
     outgoingBody: z.string().optional(),
   }),
   async run(ctx, input) {
-    const results: string[] = [];
-    const call = async (name: string, payload: unknown) => {
-      const def = actions.get(name)!;
-      return def.run(ctx, def.input.parse(payload));
+    // Validate every part before writing any, so a bad update can't leave the notes
+    // above it applied and a retry duplicating them.
+    const planned: { name: string; payload: unknown }[] = [];
+    const plan = (name: string, payload: unknown) => {
+      const parsed = actions.get(name)!.input.safeParse(payload);
+      if (!parsed.success) throw new ActionError(`Nothing applied. ${name} is invalid:\n${z.prettifyError(parsed.error)}`);
+      planned.push({ name, payload: parsed.data });
     };
+    const results: string[] = [];
     if (input.title || input.summary || input.status || input.outgoingBody !== undefined) {
-      await call("review.update", { title: input.title, summary: input.summary, status: input.status, outgoingBody: input.outgoingBody });
+      plan("review.update", { title: input.title, summary: input.summary, status: input.status, outgoingBody: input.outgoingBody });
       results.push("review updated");
     }
-    for (const s of input.addSymbols) await call("symbol.add", s);
+    for (const s of input.addSymbols) plan("symbol.add", s);
     if (input.addSymbols.length) results.push(`${input.addSymbols.length} symbols added`);
-    for (const s of input.symbols) await call("symbol.annotate", s);
+    for (const s of input.symbols) plan("symbol.annotate", s);
     if (input.symbols.length) results.push(`${input.symbols.length} symbols annotated`);
-    for (const e of input.edges) await call("edge.add", e);
-    for (const id of input.removeEdges) await call("edge.remove", { id });
+    for (const e of input.edges) plan("edge.add", e);
+    for (const id of input.removeEdges) plan("edge.remove", { id });
     if (input.steps) {
-      await call("steps.set", { steps: input.steps });
+      plan("steps.set", { steps: input.steps });
       results.push(`${input.steps.length} steps`);
     }
-    for (const n of input.notes) await call("note.add", n);
+    for (const n of input.notes) plan("note.add", n);
     if (input.notes.length) results.push(`${input.notes.length} notes`);
-    for (const u of input.updates) await call("note.update", u);
+    for (const u of input.updates) {
+      requireNote(ctx, u.noteId);
+      plan("note.update", u);
+    }
     if (input.updates.length) results.push(`${input.updates.length} threads updated`);
+    for (const { name, payload } of planned) await actions.get(name)!.run(ctx, payload);
     return { ok: true, applied: results };
   },
 });
