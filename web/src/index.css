@@ -223,6 +223,22 @@
   }
 }
 
+/* The preview enters from the edge it lives on; short, so j/k never waits on it. */
+.slide-in-right {
+  animation: slide-in-right 200ms var(--ease-out);
+}
+@keyframes slide-in-right {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .slide-in-right {
+    animation: fade-in 120ms var(--ease-out);
+  }
+}
+
 /* Pierre trees, in ink. Git state stays a letter, not a color. */
 .ds-tree {
   --trees-bg-override: var(--color-page);

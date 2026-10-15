@@ -18,7 +18,7 @@ Run the CLI as `node "${CLAUDE_SKILL_DIR}/bin/downstream.mjs" <command>`. Below 
    downstream open --base main --head feature-x
    downstream open --teach src/sync     # explain existing code instead of a diff
    ```
-   It prints the URL and opens the browser. Tell the user the URL in one line, then keep working; the UI fills in live as you write.
+   It prints the URL and opens the browser. Tell the user the URL in one line, then keep working; the UI fills in live as you write. When Downstream started you (see *Running inside Downstream*), the user is already watching and the browser moves to the review by itself.
 
 2. **Understand** before you judge. `downstream show` prints the map: doors, every symbol with its status, flow edges (`*` = new in this change, `x` = removed), tests, threads. `downstream code <symbol>` prints a symbol's code with real line numbers and `+`/`-` marks, plus who calls it and what it calls. Then read past the map: the PR description, the callers of every changed function, the tests, where data comes in, what is stored, what goes out. A change can break code it doesn't touch: when a signature, return value or behavior changes, check every caller. Find the expected load (README, deploy config) and judge scale against it.
 
@@ -115,7 +115,7 @@ Replies are markdown, shown in your voice in the margin. Keep them short: the cl
 
 The conversation in the margin is between you and the user and never leaves. What the PR author reads is a separate, explicit draft:
 
-- **Which threads go out.** Open findings go out by default; everything else stays private. Change that per thread: `downstream outgoing 3 "…"` (send, in these words) or `downstream outgoing 4 --exclude` (keep private). Findings the user dismissed or resolved in conversation should not go out.
+- **Which threads go out.** The user answers that per thread in the margin: **Send to author** (settles it, and it goes out) or **Don't send** for findings, **Got it** (private) or **Send to author too** for your explanations. That choice is `outgoing.include`; never override it. Threads the user hasn't answered: open findings go out, everything else stays private. You change it only when asked: `downstream outgoing 3 "…"` (send, in these words) or `downstream outgoing 4 --exclude`.
 - **The words.** Without outgoing wording, a finding goes out as written (severity, title, problem, fix, suggestion, impact). Reword when the conversation changed the finding, or when it should read as a question to the author. Write to the author, not to the user: no references to your conversation, and no `#3` thread numbers (on GitHub those link to issues and pull requests); name the problem instead.
 - **The body.** `outgoingBody` (via `apply` or `downstream do review.update '{"outgoingBody":"…"}'`): what the change does in a sentence or two, what must change before merging, and anything you could not check. Plain and kind.
 - **The verdict.** `downstream verdict changes|approve|comment "…"`. GitHub doesn't allow approving or requesting changes on your own pull request; use comment there.
@@ -133,9 +133,18 @@ Sending is public and permanent. **Never run `downstream send` on your own initi
 
 `downstream open --teach <paths…>` maps existing code instead of a diff: every declaration is a symbol, edges are the calls between them, doors are exported functions and routes nothing else in the set calls. The job is the same minus findings unless asked: what this part of the system is for, purposes for the important symbols, a walkthrough that follows one real request or operation end to end, and `why`/`decision` notes on the shapes a newcomer would question. Large maps open scoped to your walkthrough.
 
+## Running inside Downstream
+
+The user can start you from Downstream's home page (`downstream home`) by pressing a pull request. Then `DOWNSTREAM_HOSTED=1` is set and:
+
+- The user reads your output and answers your permission requests in the browser, not a terminal. Talk to them in the margin, and keep `downstream wait` running between turns; a message they write while you're idle also wakes you.
+- Reading never asks: file tools, searches, and read-only shell (`git log/show/diff`, `gh pr view`, `rg`, loops over those) run straight away. Anything that writes asks, and so does an expanded argument (`$f`, `$(…)`) to `git`, `gh` or the CLI, so prefer literal arguments. `downstream send` always asks.
+- For work other than a review (failing checks, feedback to address, conflicts), make changes in a git worktree and say what you'll change before you change it.
+- The user can move the session to their terminal (`claude --resume`); nothing changes for you.
+
 ## Housekeeping
 
-- State lives in `<repo>/.downstream/` (SQLite), added to `.git/info/exclude`. One server per repository; `downstream status`, `downstream url`, `downstream stop`. An updated skill restarts the server and rebuilds the UI on the next `open`.
+- One server per machine (`~/.downstream/`, or `$DOWNSTREAM_HOME`); each repository's reviews live in `<repo>/.downstream/` (SQLite), added to `.git/info/exclude`. `downstream status`, `downstream url`, `downstream stop`, `downstream home`. An updated skill restarts the server and rebuilds the UI on the next `open`.
 - `downstream reanalyze` re-reads the code after edits and keeps summaries, threads and the walkthrough.
 - Reopening (`downstream open`) starts a fresh review and makes it current; old ones stay in the database.
-- If `open` fails, `.downstream/server.log` has the server's output.
+- If `open` fails, `~/.downstream/server.log` has the server's output.

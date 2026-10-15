@@ -1,7 +1,6 @@
 // One review's view of the repository: both sides of the change, the flow
 // graph analysis, symbol frames for the UI, and IDE-grade hover.
 import ts from "typescript";
-import { execFileSync } from "node:child_process";
 import { structuredPatch } from "diff";
 import type { CodeSymbol, Range, Review } from "../domain/model.ts";
 import { diff, git, refSource, WORKTREE, worktreeSource, type FileSource, type Hunks } from "./analyze/git.ts";
@@ -10,6 +9,7 @@ import { isTsLike } from "./analyze/ts-decls.ts";
 import { clearFsCache, TsProjects } from "./analyze/ts-project.ts";
 import { isPy, PyIndex } from "./analyze/py.ts";
 import type { FileChange } from "../domain/model.ts";
+import { gh } from "./gh.ts";
 
 export type Frame = {
   symbolId: string;
@@ -226,11 +226,17 @@ export class Workspace {
 }
 
 /** Resolve what to compare. `--pr` asks gh for the base branch and fetches the head. */
-export function resolveTarget(root: string, opts: { base?: string; head?: string; pr?: number }): { base: string; baseSha: string; head: string; title?: string } {
+export function resolveTarget(
+  root: string,
+  opts: { base?: string; head?: string; pr?: number; repo?: string | null; account?: string | null },
+): { base: string; baseSha: string; head: string; title?: string } {
   if (opts.pr) {
-    const info = JSON.parse(
-      execGh(root, ["pr", "view", String(opts.pr), "--json", "baseRefName,headRefOid,title"]),
-    ) as { baseRefName: string; headRefOid: string; title: string };
+    if (!opts.repo) throw new Error("This repository's origin isn't on GitHub, so there's no pull request to open.");
+    const info = JSON.parse(gh(["pr", "view", String(opts.pr), "--repo", opts.repo, "--json", "baseRefName,headRefOid,title"], { account: opts.account })) as {
+      baseRefName: string;
+      headRefOid: string;
+      title: string;
+    };
     git(root, ["fetch", "--quiet", "origin", info.baseRefName, `pull/${opts.pr}/head`]);
     const head = info.headRefOid;
     const baseSha = git(root, ["merge-base", `origin/${info.baseRefName}`, head]).trim();
@@ -257,8 +263,4 @@ function defaultBase(root: string): string {
     }
   }
   return "HEAD";
-}
-
-function execGh(cwd: string, args: string[]): string {
-  return execFileSync("gh", args, { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }

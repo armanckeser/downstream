@@ -1,8 +1,8 @@
 // The overview: the change in one breath, before any code. Only what needs a
 // decision is open; everything else is one line until you ask for it.
 import { useState, type ReactNode } from "react";
-import { ArrowRight, ChevronRight } from "lucide-react";
-import type { CodeSymbol, Note } from "@domain/model.ts";
+import { ArrowUpRight, ChevronRight } from "lucide-react";
+import { prUrl, type CodeSymbol, type Note, type Review } from "@domain/model.ts";
 import { useReview } from "../lib/review.tsx";
 import { displayName, severityRank } from "../lib/graph.ts";
 import { Markdown } from "./markdown.tsx";
@@ -10,10 +10,10 @@ import { NoteKindTag, NoteNumber, SeverityMark, StatusMark } from "./marks.tsx";
 import { useHover } from "./hover.tsx";
 
 export function Overview() {
-  const { state, index, openStep, openSymbol, openNote } = useReview();
+  const { state, index, openSymbol, openNote } = useReview();
   const hover = useHover();
   if (!state || !index) return <OverviewSkeleton />;
-  const { review, files, symbols, notes, steps } = state;
+  const { review, files, symbols, notes } = state;
   const additions = files.reduce((n, f) => n + f.additions, 0);
   const deletions = files.reduce((n, f) => n + f.deletions, 0);
   const code = symbols.filter((s) => !s.test);
@@ -22,12 +22,10 @@ export function Overview() {
   const findings = notes.filter((n) => n.kind === "finding" && n.status === "open").sort((a, b) => severityRank[a.severity ?? "concern"] - severityRank[b.severity ?? "concern"] || a.number - b.number);
   const waiting = notes.filter((n) => n.kind === "question" && n.status === "open" && n.author === "agent");
   const decisions = notes.filter((n) => n.kind === "decision" || n.kind === "why");
-  const counts = (["added", "modified", "removed"] as const).map((k) => [k, changed.filter((s) => s.status === k).length] as const).filter(([, n]) => n > 0);
   // The contracts this change introduces or alters: judge these before the code that fills them in.
   const shapes = code.filter((s) => (s.kind === "interface" || s.kind === "type" || s.kind === "class") && (review.mode === "teach" ? s.exported : s.status !== "context"));
   const nonCode = changed.filter((s) => s.kind === "module");
 
-  const start = () => (steps[0] ? openStep(steps[0].id) : index.entries[0] ? openSymbol(index.entries[0].id) : undefined);
   const symbolButton = (s: CodeSymbol, children: ReactNode, className = "") => (
     <button
       type="button"
@@ -42,48 +40,27 @@ export function Overview() {
 
   return (
     <div className="mx-auto max-w-[50rem] px-6 pb-24 pt-10 md:px-10">
-      <p className="font-mono text-2xs text-ink-3">
-        {review.mode === "teach" ? "teaching" : review.pr ? `pull request #${review.pr}` : "change"}
-        {review.base && (
-          <>
-            {" "}
-            · {review.base} … {review.head === "WORKTREE" ? "working tree" : review.head.slice(0, 10)}
-          </>
-        )}
+      <h1 className="text-[26px] font-semibold leading-tight tracking-[-0.015em] text-ink">{review.title}</h1>
+      <p className="mt-2 font-mono text-[12px] text-ink-3">
+        {[
+          review.mode === "teach" ? (
+            "tour"
+          ) : review.pr ? (
+            <PrNumber key="pr" review={review} />
+          ) : review.head === "WORKTREE" ? (
+            "working tree"
+          ) : null,
+          review.mode === "diff" ? (
+            <span key="lines">
+              <span className="text-add">+{additions}</span> <span className="text-del">−{deletions}</span>
+            </span>
+          ) : null,
+          review.mode === "diff" ? `${files.length} file${files.length === 1 ? "" : "s"}` : `${code.length} symbols`,
+          tests.length ? `${tests.length} test${tests.length === 1 ? "" : "s"}` : null,
+        ]
+          .filter(Boolean)
+          .flatMap((part, i) => (i ? [" · ", part] : [part]))}
       </p>
-      <h1 className="mt-1.5 text-[26px] font-semibold leading-tight tracking-[-0.015em] text-ink">{review.title}</h1>
-      <dl className="mt-3 flex flex-wrap gap-x-5 gap-y-1 font-mono text-[12px] text-ink-3">
-        {review.mode === "diff" && (
-          <>
-            <div>
-              <dt className="sr-only">Lines</dt>
-              <dd>
-                <span className="text-add">+{additions}</span> <span className="text-del">−{deletions}</span>
-              </dd>
-            </div>
-            <div>
-              <dd>
-                <span className="text-ink-2">{files.length}</span> files
-              </dd>
-            </div>
-          </>
-        )}
-        {counts.map(([k, n]) => (
-          <div key={k} className="flex items-center gap-1.5">
-            <StatusMark status={k} />
-            <dd>
-              <span className="text-ink-2">{n}</span> {k}
-            </dd>
-          </div>
-        ))}
-        {tests.length > 0 && (
-          <div>
-            <dd>
-              <span className="text-ink-2">{tests.length}</span> test{tests.length === 1 ? "" : "s"}
-            </dd>
-          </div>
-        )}
-      </dl>
 
       <section className="mt-8">
         {review.summary ? (
@@ -91,23 +68,17 @@ export function Overview() {
             <Markdown text={review.summary} className="prose-ds max-w-[68ch] text-[14.5px] leading-[1.65]" />
           </div>
         ) : (
-          <div className="rounded-lg border border-dashed border-line px-4 py-3.5">
-            <p className="text-[13.5px] text-ink-2">The agent is reading the change and hasn't written its summary yet.</p>
-            <p className="mt-1 text-[12.5px] text-ink-3">
-              It appears here as soon as it runs <code className="font-mono text-ink-2">downstream apply</code>. The map already works: {changed.length} changed symbols.
-            </p>
-          </div>
+          <p className="flex items-center gap-2 text-[13.5px] text-ink-3">
+            <span className="size-1.5 rounded-full bg-agent/70 motion-safe:animate-pulse" />
+            The agent is reading the change. Its summary appears here.
+          </p>
         )}
-        <button type="button" onClick={start} disabled={!steps.length && !index.entries.length} className="press mt-6 inline-flex items-center gap-2 rounded-md bg-ink px-3.5 py-2 text-[13.5px] font-medium text-page hover:bg-white disabled:opacity-30">
-          {steps.length ? `Walk through it, ${steps.length} steps` : "Start at the first door"}
-          <ArrowRight size={15} />
-        </button>
       </section>
 
       {(findings.length > 0 || waiting.length > 0) && (
         <section className="mt-12">
           <h2 className="eyebrow flex border-b border-line-subtle pb-2">
-            Needs your eyes <span className="ml-auto font-mono normal-case tracking-normal text-ink-4">{findings.length + waiting.length}</span>
+            Needs you <span className="ml-auto font-mono normal-case tracking-normal text-ink-4">{findings.length + waiting.length}</span>
           </h2>
           <ul className="divide-y divide-line-subtle">
             {[...findings, ...waiting].map((n) => (
@@ -120,7 +91,6 @@ export function Overview() {
                       <NoteKindTag note={n} />
                       <span className="text-[13.5px] leading-snug text-ink">{n.title}</span>
                     </span>
-                    {n.kind === "question" && <span className="mt-0.5 block pl-4 text-[12.5px] text-ink-3">The agent needs your answer to judge this.</span>}
                   </span>
                 </button>
               </li>
@@ -130,7 +100,7 @@ export function Overview() {
       )}
 
       <section className="mt-10">
-        <h2 className="eyebrow border-b border-line-subtle pb-2">Doors into this change</h2>
+        <h2 className="eyebrow border-b border-line-subtle pb-2">Where it starts</h2>
         <ul className="divide-y divide-line-subtle">
           {index.entries.map((s) => (
             <li key={s.id}>
@@ -268,5 +238,17 @@ function OverviewSkeleton() {
       <div className="h-7 w-2/3 rounded bg-pane" />
       <div className="mt-8 h-24 rounded bg-pane" />
     </div>
+  );
+}
+
+/** `#123`, linked to the pull request on GitHub. */
+function PrNumber({ review }: { review: Pick<Review, "repo" | "pr"> }) {
+  const url = prUrl(review);
+  if (!url) return <>#{review.pr}</>;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 hover:text-ink hover:underline" title="Open on GitHub">
+      #{review.pr}
+      <ArrowUpRight size={11} className="opacity-60" />
+    </a>
   );
 }

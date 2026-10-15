@@ -81,6 +81,8 @@ test("frames carry real line numbers and hover reads types", () => {
       head: "WORKTREE",
       paths: [],
       pr: null,
+      repo: null,
+      account: null,
       summary: "",
       status: "drafting",
       createdAt: new Date().toISOString(),
@@ -163,6 +165,8 @@ test("python hover reads signatures and docstrings through imports", () => {
   try {
     const review: Review = {
       id: "rv_py", title: "t", mode: "teach", base: null, baseSha: null, head: "WORKTREE", paths: ["app"], pr: null,
+      repo: null,
+      account: null,
       summary: "", status: "drafting", createdAt: new Date().toISOString(), verdicts: [], outgoingBody: "", published: null,
     };
     const ws = new Workspace(r.root, review);

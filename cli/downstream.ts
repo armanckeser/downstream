@@ -2,7 +2,8 @@
 // same HTTP actions the browser uses; reads can also go straight to SQLite
 // through a read-only connection.
 import { spawn, execFileSync } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, appendFileSync, mkdirSync, openSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, openSync, readdirSync, statSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { fileURLToPath } from "node:url";
@@ -32,31 +33,38 @@ function flags(list: string[]) {
 const { pos, opts } = flags(argv.slice(1));
 const str = (k: string) => (typeof opts[k] === "string" ? (opts[k] as string) : undefined);
 
-function repoRoot(): string {
+function repoRoot(): string | null {
   try {
     return execFileSync("git", ["rev-parse", "--show-toplevel"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
   } catch {
-    fail("Not inside a git repository.");
+    return null;
   }
 }
+
+const insideRepo = () => repoRoot() !== null;
 
 function fail(msg: string): never {
   console.error(`downstream: ${msg}`);
   process.exit(1);
 }
 
-const root = repoRoot();
-const dir = path.join(root, ".downstream");
-const serverFile = path.join(dir, "server.json");
-const cursorFile = path.join(dir, "agent-cursor");
+/** The one server for this machine, shared by every repository (and the home page). */
+const homeDir = process.env.DOWNSTREAM_HOME ?? path.join(homedir(), ".downstream");
+const serverFile = path.join(homeDir, "server.json");
+
+// Repository commands need a repo; `home`, `stop` and `url` don't.
+let rootCache: string | null = null;
+const root = () => (rootCache ??= repoRoot() ?? fail("Not inside a git repository."));
+const dir = () => path.join(root(), ".downstream");
+const cursorFile = () => path.join(dir(), "agent-cursor");
 
 async function health(): Promise<{ url: string; pid: number; startedAt: number } | null> {
   if (!existsSync(serverFile)) return null;
   const { url } = JSON.parse(readFileSync(serverFile, "utf8")) as { url: string };
   try {
     const r = await fetch(`${url}/api/health`, { signal: AbortSignal.timeout(1500) });
-    const h = (await r.json()) as { root: string; pid: number; startedAt: number };
-    return path.resolve(h.root) === path.resolve(root) ? { url, pid: h.pid, startedAt: h.startedAt ?? 0 } : null;
+    const h = (await r.json()) as { pid: number; startedAt: number };
+    return { url, pid: h.pid, startedAt: h.startedAt ?? 0 };
   } catch {
     return null;
   }
@@ -64,6 +72,17 @@ async function health(): Promise<{ url: string; pid: number; startedAt: number }
 
 async function serverUrl(): Promise<string | null> {
   return (await health())?.url ?? null;
+}
+
+let repoBase: string | null = null;
+/** This repository's API on the shared server: `<server>/r/<repo id>`. */
+async function base(): Promise<string> {
+  if (repoBase) return repoBase;
+  const url = (await serverUrl()) ?? fail("no server running. Start with `downstream open`.");
+  const r = await fetch(`${url}/api/repos`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ root: root() }) });
+  const body = (await r.json()) as { id?: string; error?: string };
+  if (!r.ok || !body.id) fail(body.error ?? "couldn't register this repository with the server");
+  return (repoBase = `${url}/r/${body.id}`);
 }
 
 function newest(dir: string): number {
@@ -100,21 +119,11 @@ function ensureBuilt() {
   }
 }
 
-function excludeFromGit() {
-  const exclude = path.join(root, ".git", "info", "exclude");
-  try {
-    const text = existsSync(exclude) ? readFileSync(exclude, "utf8") : "";
-    if (!text.split("\n").includes(".downstream/")) appendFileSync(exclude, `${text.endsWith("\n") || !text ? "" : "\n"}.downstream/\n`);
-  } catch {
-    /* worktrees keep info/ elsewhere; not worth failing over */
-  }
-}
-
 async function ensureServer(): Promise<string> {
   const running = await health();
   if (running && running.startedAt >= codeVersion()) return running.url;
   if (running) {
-    console.error("downstream: the skill was updated; restarting this repository's server…");
+    console.error("downstream: the skill was updated; restarting the server…");
     try {
       process.kill(running.pid);
     } catch {
@@ -123,14 +132,13 @@ async function ensureServer(): Promise<string> {
     await new Promise((r) => setTimeout(r, 400));
   }
   ensureBuilt();
-  mkdirSync(dir, { recursive: true });
-  excludeFromGit();
+  mkdirSync(homeDir, { recursive: true });
   const port = await freePort(Number(str("port") ?? 4317));
-  const log = openSync(path.join(dir, "server.log"), "a");
+  const log = openSync(path.join(homeDir, "server.log"), "a");
   const tsx = import.meta.resolve("tsx");
   const child = spawn(
     process.execPath,
-    ["--no-warnings=ExperimentalWarning", "--import", tsx, path.join(skillDir, "server", "main.ts"), `--root=${root}`, `--port=${port}`],
+    ["--no-warnings=ExperimentalWarning", "--import", tsx, path.join(skillDir, "server", "main.ts"), `--port=${port}`],
     { cwd: skillDir, detached: true, stdio: ["ignore", log, log], windowsHide: true },
   );
   child.unref();
@@ -139,12 +147,11 @@ async function ensureServer(): Promise<string> {
     const url = await serverUrl();
     if (url) return url;
   }
-  fail(`server did not start; see ${path.join(dir, "server.log")}`);
+  fail(`server did not start; see ${path.join(homeDir, "server.log")}`);
 }
 
 async function call<T = unknown>(name: string, input: unknown = {}): Promise<T> {
-  const url = (await serverUrl()) ?? fail("no server running here. Start with `downstream open`.");
-  const r = await fetch(`${url}/api/actions/${name}`, {
+  const r = await fetch(`${await base()}/api/actions/${name}`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-downstream-actor": "agent" },
     body: JSON.stringify({ input }),
@@ -155,8 +162,7 @@ async function call<T = unknown>(name: string, input: unknown = {}): Promise<T> 
 }
 
 async function get<T>(p: string): Promise<T> {
-  const url = (await serverUrl()) ?? fail("no server running here. Start with `downstream open`.");
-  const r = await fetch(`${url}${p}`, { headers: { "x-downstream-actor": "agent" } });
+  const r = await fetch(`${await base()}${p.replace(/^\/api/, "/api")}`, { headers: { "x-downstream-actor": "agent" } });
   const body = (await r.json()) as T & { error?: string };
   if (!r.ok) fail(body.error ?? r.statusText);
   return body;
@@ -281,6 +287,7 @@ function describe(e: ReviewEvent, state: ReviewState | null): string {
 const HELP = `downstream: a review surface you and the user share.
 
 Start
+  home                     open the home page: every PR that needs you, one next action each
   open [--base <ref>] [--head <ref>] [--pr <n>] [--title <t>]   review a change (default: working tree vs main)
   open --teach <path...>                                        explain existing code instead of a diff
   url | status | stop
@@ -312,7 +319,7 @@ Converse
 async function main() {
   switch (cmd) {
     case "open": {
-      const url = await ensureServer();
+      await ensureServer();
       const teach = opts.teach !== undefined;
       const paths = teach ? [...(typeof opts.teach === "string" ? [opts.teach] : []), ...pos] : [];
       const res = await call<{ review: { title: string }; files: number; symbols: number; edges: number }>("review.open", {
@@ -323,23 +330,35 @@ async function main() {
         paths,
         title: str("title"),
       });
-      writeFileSync(cursorFile, "0");
+      writeFileSync(cursorFile(), "0");
       const state = await get<ReviewState>("/api/state");
-      writeFileSync(cursorFile, String(state.cursor));
+      writeFileSync(cursorFile(), String(state.cursor));
+      const page = await base();
       console.log(`Opened "${res.review.title}": ${res.files} files, ${res.symbols} symbols, ${res.edges} edges.`);
-      console.log(`UI: ${url}`);
+      console.log(`UI: ${page}`);
       console.log(`Next: \`downstream show\`, read the code, then \`downstream apply plan.json\`. See SKILL.md.`);
+      // Started from the home page, the user's browser is already on its way to this review.
+      if (!process.env.DOWNSTREAM_HOSTED) openBrowser(page);
+      return;
+    }
+    case "home": {
+      const url = await ensureServer();
+      console.log(`Home: ${url}`);
       openBrowser(url);
       return;
     }
     case "url":
-      console.log((await serverUrl()) ?? "not running");
+    {
+      const url = await serverUrl();
+      if (!url) return console.log("not running");
+      console.log(insideRepo() ? await base() : url);
       return;
+    }
     case "status": {
       const url = await serverUrl();
       if (!url) return console.log("not running");
       const state = await get<ReviewState>("/api/state");
-      console.log(`${url}  ·  ${state.review.title}  ·  ${state.notes.filter((n) => n.status === "open").length} open threads  ·  agent ${state.presence.agent}`);
+      console.log(`${await base()}  ·  ${state.review.title}  ·  ${state.notes.filter((n) => n.status === "open").length} open threads  ·  agent ${state.presence.agent}`);
       return;
     }
     case "stop": {
@@ -378,7 +397,7 @@ async function main() {
       return;
     case "sql": {
       const { readOnly } = await import("../server/store.ts");
-      const db = readOnly(path.join(dir, "review.db"));
+      const db = readOnly(path.join(dir(), "review.db"));
       const rows = db.prepare(pos.join(" ")).all();
       console.log(rows.length ? JSON.stringify(rows, null, 2) : "(no rows)");
       return;
@@ -486,7 +505,7 @@ async function main() {
       return;
     }
     case "wait": {
-      const after = existsSync(cursorFile) ? Number(readFileSync(cursorFile, "utf8")) || 0 : 0;
+      const after = existsSync(cursorFile()) ? Number(readFileSync(cursorFile(), "utf8")) || 0 : 0;
       const timeout = Number(str("timeout") ?? 600);
       // Node's fetch gives up on a response whose headers take longer than 300s, so a
       // long wait is a series of shorter ones from the same cursor.
@@ -496,7 +515,7 @@ async function main() {
         const chunk = Math.max(1, Math.min(WAIT_CHUNK_SECONDS, Math.ceil((deadline - Date.now()) / 1000)));
         res = await get(`/api/wait?after=${after}&timeout=${chunk}`);
       } while (res.timedOut && Date.now() < deadline);
-      writeFileSync(cursorFile, String(res.cursor));
+      writeFileSync(cursorFile(), String(res.cursor));
       if (res.timedOut) return console.log(`(no activity in ${timeout}s; the user may be reading. Run \`downstream wait\` again.)`);
       const state = await get<ReviewState>("/api/state");
       for (const e of res.events) console.log(describe(e, state) + "\n");

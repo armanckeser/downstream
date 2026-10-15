@@ -2,7 +2,7 @@
 // hover and follow, so prose about the code stays attached to the code.
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useReview } from "../lib/review.tsx";
+import { useOptionalReview } from "../lib/review.tsx";
 import { useHover } from "./hover.tsx";
 
 export function Markdown({ text, className = "prose-ds" }: { text: string; className?: string }) {
@@ -17,9 +17,11 @@ export function Markdown({ text, className = "prose-ds" }: { text: string; class
 
 function Code({ children, className }: { children?: React.ReactNode; className?: string }) {
   const text = String(children ?? "");
-  const { index, openSymbol } = useReview();
+  const review = useOptionalReview();
   const hover = useHover();
-  if (className || text.includes("\n") || !index) return <code className={className}>{children}</code>;
+  const index = review?.index;
+  if (className || text.includes("\n") || !index || !review) return <code className={className}>{children}</code>;
+  const { openSymbol } = review;
   const bare = text.replace(/\(\)$/, "");
   const match =
     index.byId.get(bare) ??

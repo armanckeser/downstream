@@ -11,5 +11,5 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: { alias: { "@domain": path.join(here, "..", "domain") } },
   build: { outDir: path.join(here, "dist"), emptyOutDir: true, chunkSizeWarningLimit: 4000 },
-  server: { port: 5199, proxy: { "/api": process.env.DOWNSTREAM_API ?? "http://127.0.0.1:4317" } },
+  server: { port: 5199, proxy: { "/api": process.env.DOWNSTREAM_API ?? "http://127.0.0.1:4317", "^/r/[^/]+/api": process.env.DOWNSTREAM_API ?? "http://127.0.0.1:4317" } },
 });

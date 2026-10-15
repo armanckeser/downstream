@@ -179,6 +179,10 @@ export const Review = z.object({
   /** Teach mode: the paths being explained. */
   paths: z.array(z.string()).default([]),
   pr: z.number().int().nullable().default(null),
+  /** `owner/name` on GitHub, when the repo has a GitHub origin. */
+  repo: z.string().nullable().default(null),
+  /** The GitHub account this review reads and sends as. */
+  account: z.string().nullable().default(null),
   summary: z.string().default(""),
   status: z.enum(["drafting", "ready", "done"]),
   createdAt: z.string(),
@@ -201,6 +205,8 @@ export type ReviewState = {
   cursor: number;
   /** The newest user message `downstream wait` has handed to the agent; anything at or before it, the agent has read. */
   readThrough: string | null;
+  /** Walkthrough steps the user has opened. */
+  visited: string[];
 };
 
 /** Is the agent in the room? `listening` = a `downstream wait` is blocked on the user. */
@@ -247,3 +253,6 @@ export type ReviewEvent = {
   payload: unknown;
   at: string;
 };
+
+/** The pull request on GitHub, when the review is of one. */
+export const prUrl = (review: Pick<Review, "repo" | "pr">): string | null => (review.repo && review.pr ? `https://github.com/${review.repo}/pull/${review.pr}` : null);

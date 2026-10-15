@@ -3,7 +3,7 @@
 // agent can see it; the agent can move it back with `navigate` events.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { NavigateCommand, Presence, Range, ReviewEvent, ReviewState } from "@domain/model.ts";
-import { action, fetchState, subscribe } from "./api.ts";
+import { action, fetchState, setRepo, subscribe } from "./api.ts";
 import { buildIndex, pathFromEntry, type Index } from "./graph.ts";
 
 export type View = "overview" | "trail" | "map";
@@ -44,7 +44,11 @@ export function useReview(): Ctx {
   return ctx;
 }
 
-export function ReviewProvider({ children }: { children: ReactNode }) {
+/** For components that also render outside a review (markdown in an agent session). */
+export const useOptionalReview = (): Ctx | null => useContext(ReviewContext);
+
+export function ReviewProvider({ repo, review, children }: { repo: string; review: string | null; children: ReactNode }) {
+  setRepo(repo, review);
   const [state, setState] = useState<ReviewState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
@@ -97,6 +101,13 @@ export function ReviewProvider({ children }: { children: ReactNode }) {
       const step = stateRef.current?.steps.find((s) => s.id === id);
       if (!step) return;
       setStepId(id);
+      // Remembered on the server, so the next move (here and on the home page) knows what's left to read.
+      const seen = stateRef.current?.visited ?? [];
+      if (!seen.includes(id)) {
+        const visited = [...seen, id];
+        setState((s) => (s ? { ...s, visited } : s));
+        void action("state.set", { key: "visited", value: visited }).catch(() => {});
+      }
       if (step.symbolId) {
         const idx = indexRef.current;
         if (idx) setTrailState((prev) => (prev.includes(step.symbolId!) ? prev.slice(0, prev.indexOf(step.symbolId!) + 1) : pathFromEntry(idx, step.symbolId!)));

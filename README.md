@@ -6,6 +6,16 @@ Ask your coding agent to review a pull request, or to explain part of the codeba
 
 ![A review in Downstream: the agent's walkthrough lands live, a type hover, following a call, a question answered in the margin, the flow map](docs/demo.gif)
 
+## Home: what needs you
+
+`downstream home` opens a page with every pull request that needs you, for one GitHub account at a time, each with one next action: *Merge*, *Review*, *Re-review*, *Address 3 threads*, *Fix checks*, *Resolve conflicts*. One is **Now**. Pins come next in your order, then the rest ranked by what unblocks most. Pull requests waiting on someone else fold away.
+
+- **Accounts.** Every account `gh auth status` knows, one at a time (`1`, `2`). Inboxes never merge.
+- **Stacks.** A stack (`gh stack`) shows up as one row. Only the bottom layer can merge, so the row's action is the lowest layer that can move.
+- **Press a pull request** and Claude Code starts on it inside Downstream (through the Agent SDK, with your Claude Code settings). A review opens as soon as the agent writes it; other moves happen in a session page where you talk to the agent. Reading runs without asking; anything that writes asks you in the browser, and sending the review is always yours. **Move to terminal** stops it here and copies `claude --resume <id>`.
+
+Keys: `j`/`k` move, `↵` start, `n` Now, `p` pin, `r` refresh. In a review, one button is always the next thing to do (answer the agent, the next walkthrough step, send), and `↵` presses it.
+
 ## Why
 
 A diff is a list of files, top to bottom, alphabetically. Nobody understands code that way. You find where control comes in, follow what it calls, and stop wherever something looks odd to ask why it's like that. The diff never tells you the entry point, never shows who calls the function you're reading, and never says why the author chose this interface over the obvious other one. That lives in the author's head, or now in the agent's context, and it's gone when the PR merges.
@@ -51,7 +61,7 @@ The analyzer does the mechanical part. It diffs the change against the merge bas
 
 Downstream follows the [agent-first-apps](https://github.com/armanckeser/agent-first-apps) contract, adapted to a tool that starts in a second inside any repository:
 
-- **One source of truth.** A SQLite database per repository (`.downstream/review.db`, kept out of git). The agent can query it read-only with `downstream sql`, and that connection cannot write.
+- **One source of truth.** A SQLite database per repository (`.downstream/review.db`, kept out of git), and one for the home page (`~/.downstream/home.db`: Now, pins, which repository and agent session belong to which pull request). The agent can query it read-only with `downstream sql`, and that connection cannot write.
 - **One action surface.** Every change is an action defined once in `server/actions.ts` with a schema: `note.add`, `note.reply`, `steps.set`, `symbol.annotate`, `navigate`, …. The browser, the CLI and plain HTTP all call it. `downstream actions` lists them.
 - **Live sync.** Every action emits an event. The browser follows them over server-sent events and updates as the agent writes.
 - **Shared application state.** The browser reports what you're looking at (the view, the trail of open frames, your selected lines), so when you ask about "this" the agent already knows what this is (`downstream screen`). The agent can move your view with `navigate`.
@@ -66,7 +76,7 @@ git clone https://github.com/armanckeser/downstream ~/.claude/skills/downstream
 cd ~/.claude/skills/downstream && npm install && npm run build
 ```
 
-Then ask Claude Code to review something: *"help me review this branch"*, *"review PR 42 with me"*, *"teach me how the sync engine works"*. The first `open` in a repository takes a few seconds while TypeScript loads the project; after that the hovers are instant.
+Then run `node ~/.claude/skills/downstream/bin/downstream.mjs home` for the inbox, or ask Claude Code to review something: *"help me review this branch"*, *"review PR 42 with me"*, *"teach me how the sync engine works"*. The first `open` in a repository takes a few seconds while TypeScript loads the project; after that the hovers are instant.
 
 Requires Node 22.13 or newer and git. `--pr` uses the GitHub CLI.
 
@@ -90,7 +100,12 @@ DOWNSTREAM_API=http://127.0.0.1:4317 npm run dev:web   # UI with hot reload agai
 | `server/actions.ts` | Every action, defined once |
 | `server/publish.ts` | The review as the PR author sees it, and sending it |
 | `server/analyze/py.ts` | Python declarations, imports and calls |
-| `server/main.ts` | HTTP, SSE, `wait` |
+| `server/main.ts` | HTTP, SSE, `wait`; one server for every repository (`/r/<repo>/api`) |
+| `domain/inbox.ts` | The next action for each pull request, stacks, Now and pins |
+| `domain/next-move.ts` | The one next thing to do inside a review |
+| `domain/approval.ts` | Which agent tool calls run without asking |
+| `server/github.ts`, `server/gh.ts` | The inbox from GitHub search, per account |
+| `server/agent-host.ts`, `server/home.ts` | Agent sessions started from the home page; the home API |
 | `cli/downstream.ts` | The agent's CLI |
 | `web/src/` | The review surface (React, Tailwind, [Pierre diffs](https://diffs.com) and [trees](https://www.npmjs.com/package/@pierre/trees), dagre) |
 | `scripts/demo.mjs` | Records the demo above against a real repository |

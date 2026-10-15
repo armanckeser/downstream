@@ -1,9 +1,9 @@
 // Turning the review you and the agent arrived at into what the PR author sees.
 // The conversation stays private; only threads marked to go out are sent, in
 // the words drafted for the author, after the user presses Send.
-import { execFileSync } from "node:child_process";
 import { severityLabel, type Note, type Review, type ReviewState } from "../domain/model.ts";
 import { git } from "./analyze/git.ts";
+import { gh } from "./gh.ts";
 
 export type DraftComment = {
   noteId: string;
@@ -95,14 +95,7 @@ export function draft(root: string, state: ReviewState, overrides: { event?: Dra
     body += "\n\n" + outside.map((c) => `**${c.path}:${c.startLine ? `${c.startLine}-` : ""}${c.line}**\n\n${c.body}`).join("\n\n---\n\n");
   }
 
-  let repo: string | null = null;
-  if (review.pr) {
-    try {
-      repo = execFileSync("gh", ["repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"], { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
-    } catch {
-      repo = null;
-    }
-  }
+  const repo = review.pr ? review.repo : null;
   const markdown = [body, ...comments.filter((c) => c.inline).map((c) => `**${c.path}:${c.startLine ? `${c.startLine}-` : ""}${c.line}**\n\n${c.body}`)].join("\n\n---\n\n");
   return { event, body, comments, target: review.pr ? { pr: review.pr, repo } : null, markdown };
 }
@@ -120,7 +113,7 @@ function defaultBody(state: ReviewState, comments: DraftComment[]): string {
   return lines.join("\n\n");
 }
 
-export function publish(root: string, state: ReviewState, d: Draft): { url: string; comments: number } {
+export function publish(state: ReviewState, d: Draft): { url: string; comments: number } {
   const { review } = state;
   if (!review.pr || !d.target?.repo) throw new Error("Only pull request reviews can be sent. Open with `downstream open --pr <n>`, or copy the markdown.");
   const payload = {
@@ -131,12 +124,7 @@ export function publish(root: string, state: ReviewState, d: Draft): { url: stri
       .filter((c) => c.inline)
       .map((c) => ({ path: c.path, line: c.line, side: c.side, ...(c.startLine ? { start_line: c.startLine, start_side: c.side } : {}), body: c.body })),
   };
-  const out = execFileSync("gh", ["api", "-X", "POST", `repos/${d.target.repo}/pulls/${review.pr}/reviews`, "--input", "-"], {
-    cwd: root,
-    input: JSON.stringify(payload),
-    encoding: "utf8",
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  const out = gh(["api", "-X", "POST", `repos/${d.target.repo}/pulls/${review.pr}/reviews`, "--input", "-"], { account: review.account, input: JSON.stringify(payload) });
   const res = JSON.parse(out) as { html_url: string };
   return { url: res.html_url, comments: payload.comments.length };
 }

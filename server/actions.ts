@@ -34,6 +34,10 @@ export type ActionContext = {
   store: Store;
   actor: Author;
   root: string;
+  /** `owner/name` of the repo's GitHub origin, if it has one. */
+  nameWithOwner: string | null;
+  /** The account a PR's agent session was started with (from the home page), if any. */
+  accountFor: (pr: number) => string | null;
   workspace: (reviewId: string) => Workspace;
   dropWorkspace: (reviewId: string) => void;
 };
@@ -107,6 +111,8 @@ export const openReview = defineAction({
         head: "WORKTREE",
         paths: input.paths,
         pr: null,
+        repo: ctx.nameWithOwner,
+        account: null,
         summary: "",
         status: "drafting",
         createdAt: now(),
@@ -115,7 +121,8 @@ export const openReview = defineAction({
         published: null,
       };
     } else {
-      const t = resolveTarget(ctx.root, input);
+      const account = input.pr ? ctx.accountFor(input.pr) : null;
+      const t = resolveTarget(ctx.root, { ...input, repo: ctx.nameWithOwner, account });
       review = {
         id,
         title: input.title ?? t.title ?? defaultTitle(ctx.root, t.head, t.base, input.pr),
@@ -125,6 +132,8 @@ export const openReview = defineAction({
         head: t.head,
         paths: [],
         pr: input.pr ?? null,
+        repo: ctx.nameWithOwner,
+        account,
         summary: "",
         status: "drafting",
         createdAt: now(),
@@ -493,8 +502,13 @@ defineAction({
 
 defineAction({
   name: "state.set",
-  description: "The UI reports what the user is looking at (navigation) and what they selected (selection).",
-  input: z.discriminatedUnion("key", [z.object({ key: z.literal("navigation"), value: Navigation }), z.object({ key: z.literal("selection"), value: Selection.nullable() })]),
+  description: "The UI reports what the user is looking at (navigation), what they selected (selection), and which steps they've opened (visited).",
+  input: z.discriminatedUnion("key", [
+    z.object({ key: z.literal("navigation"), value: Navigation }),
+    z.object({ key: z.literal("selection"), value: Selection.nullable() }),
+    /** Walkthrough steps the user has opened, so the next move (here and on the home page) knows what's left. */
+    z.object({ key: z.literal("visited"), value: z.array(z.string()) }),
+  ]),
   run(ctx, input) {
     ctx.store.setAppState(ctx.reviewId, input.key, input.value);
     return { ok: true };
@@ -596,7 +610,7 @@ defineAction({
     const d = draft(ctx.root, state, input);
     let sent: { url: string; comments: number };
     try {
-      sent = publish(ctx.root, state, d);
+      sent = publish(state, d);
     } catch (e) {
       const err = e as Error & { stderr?: string };
       const detail = err.stderr?.toString().trim() || err.message;

@@ -310,6 +310,7 @@ export class Store {
       presence: this.presence(),
       cursor: this.cursor(reviewId),
       readThrough: this.readThrough(reviewId),
+      visited: this.getAppState<string[]>(reviewId, "visited") ?? [],
     };
   }
 
