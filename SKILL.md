@@ -7,7 +7,7 @@ description: Open a shared, live review surface for a code change or an area of 
 
 Downstream turns a change into something a person can read the way the code runs: start at an entry point ("a door"), follow each call downstream, and see why each piece is the way it is. You (the agent) map the change, write the walkthrough, and review it; the user reads it in a browser and talks to you in the margin; together you arrive at a review, and when the user says so, it goes to the pull request. You both read and write the same review through the same actions, and you hear the user through `downstream wait`.
 
-Run the CLI as `node "${CLAUDE_SKILL_DIR}/bin/downstream.mjs" <command>`. Below it is written `downstream <command>`. Run it from inside the repository being reviewed. The first run installs dependencies and builds the UI (about a minute).
+Run the CLI as `node "${CLAUDE_SKILL_DIR}/bin/downstream.mjs" <command>`. Below it is written `downstream <command>`. Run review commands from inside the repository being reviewed; `home`, `url` and `stop` work from anywhere. The first run installs dependencies and builds the UI (about a minute).
 
 ## The loop
 

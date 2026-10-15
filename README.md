@@ -76,7 +76,15 @@ git clone https://github.com/armanckeser/downstream ~/.claude/skills/downstream
 cd ~/.claude/skills/downstream && npm install && npm run build
 ```
 
-Then run `node ~/.claude/skills/downstream/bin/downstream.mjs home` for the inbox, or ask Claude Code to review something: *"help me review this branch"*, *"review PR 42 with me"*, *"teach me how the sync engine works"*. The first `open` in a repository takes a few seconds while TypeScript loads the project; after that the hovers are instant.
+Then start the home page from any directory; it doesn't need to be inside a repository:
+
+```bash
+node ~/.claude/skills/downstream/bin/downstream.mjs home
+```
+
+One server runs per machine (`~/.downstream/`). Press a pull request and Downstream finds your clone of that repository under `~/projects`, `~/code`, `~/src`, `~/dev` or `~` (set `DOWNSTREAM_REPO_ROOTS` to search elsewhere), and makes a partial clone in `~/.downstream/repos/` when you don't have one.
+
+Or ask Claude Code to review something: *"help me review this branch"*, *"review PR 42 with me"*, *"teach me how the sync engine works"*. The first `open` in a repository takes a few seconds while TypeScript loads the project; after that the hovers are instant.
 
 Requires Node 22.13 or newer and git. `--pr` uses the GitHub CLI.
 
