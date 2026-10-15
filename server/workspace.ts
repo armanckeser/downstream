@@ -39,11 +39,12 @@ export class Workspace {
   private oldProjects: TsProjects | null = null;
   private hunks = new Map<string, Hunks>();
   private files: FileChange[] = [];
+  readonly root: string;
+  readonly review: Review;
 
-  constructor(
-    readonly root: string,
-    readonly review: Review,
-  ) {
+  constructor(root: string, review: Review) {
+    this.root = root;
+    this.review = review;
     this.newSrc = review.head === WORKTREE ? worktreeSource(root) : refSource(root, review.head);
     this.oldSrc = review.baseSha ? refSource(root, review.baseSha) : null;
   }

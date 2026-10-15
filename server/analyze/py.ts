@@ -213,11 +213,12 @@ export function enclosingPy(decls: PyDecl[], line: number): PyDecl | null {
 export class PyIndex {
   private parsed = new Map<string, PyFile | null>();
   private byModuleSuffix: Map<string, string[]>;
+  private readonly files: string[];
+  private readonly read: (file: string) => string | null;
 
-  constructor(
-    private readonly files: string[],
-    private readonly read: (file: string) => string | null,
-  ) {
+  constructor(files: string[], read: (file: string) => string | null) {
+    this.files = files;
+    this.read = read;
     this.byModuleSuffix = new Map();
     for (const f of files.filter(isPy)) {
       const mod = f.replace(/\.pyi?$/, "").replace(/\/__init__$/, "").split("/");

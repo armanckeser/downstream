@@ -86,7 +86,7 @@ One server runs per machine (`~/.downstream/`). Press a pull request and Downstr
 
 Or ask Claude Code to review something: *"help me review this branch"*, *"review PR 42 with me"*, *"teach me how the sync engine works"*. The first `open` in a repository takes a few seconds while TypeScript loads the project; after that the hovers are instant.
 
-Requires Node 22.13 or newer and git. `--pr` uses the GitHub CLI.
+Requires Node 22.18 or newer and git. `--pr` uses the GitHub CLI.
 
 **Languages.** TypeScript and JavaScript go through the compiler: symbols, call resolution, callers, real types on hover. Python is read from indentation and imports: functions, classes and methods with decorators and docstrings, FastAPI/Flask routes as doors, calls through imports and `self`, callers across the repo, signatures and docstrings on hover. Tests in either are marked as tests. Other languages arrive as one symbol per changed file; the agent splits them into real functions and draws the edges (`addSymbols`, `edges` in `apply`).
 

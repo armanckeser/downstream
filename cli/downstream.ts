@@ -135,10 +135,9 @@ async function ensureServer(): Promise<string> {
   mkdirSync(homeDir, { recursive: true });
   const port = await freePort(Number(str("port") ?? 4317));
   const log = openSync(path.join(homeDir, "server.log"), "a");
-  const tsx = import.meta.resolve("tsx");
   const child = spawn(
     process.execPath,
-    ["--no-warnings=ExperimentalWarning", "--import", tsx, path.join(skillDir, "server", "main.ts"), `--port=${port}`],
+    ["--no-warnings=ExperimentalWarning", path.join(skillDir, "server", "main.ts"), `--port=${port}`],
     { cwd: skillDir, detached: true, stdio: ["ignore", log, log], windowsHide: true },
   );
   child.unref();

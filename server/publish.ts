@@ -115,14 +115,15 @@ function defaultBody(state: ReviewState, comments: DraftComment[]): string {
 
 /** The PR moved on after the review was opened: its comments would sit on code that has been replaced. */
 export class HeadMoved extends Error {
-  constructor(
-    readonly reviewed: string,
-    readonly current: string,
-    pr: number,
-  ) {
+  readonly reviewed: string;
+  readonly current: string;
+
+  constructor(reviewed: string, current: string, pr: number) {
     super(
       `#${pr} changed since you opened this review (${reviewed.slice(0, 7)} → ${current.slice(0, 7)}), so these comments would land on replaced code. Re-open it with \`downstream open --pr ${pr}\` to review what's there now, or send anyway.`,
     );
+    this.reviewed = reviewed;
+    this.current = current;
   }
 }
 

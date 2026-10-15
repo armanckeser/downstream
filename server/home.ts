@@ -29,7 +29,11 @@ class InboxCache {
   private inflight = new Map<string, Promise<void>>();
   private errors = new Map<string, string>();
 
-  constructor(private readonly onChange: () => void) {}
+  private readonly onChange: () => void;
+
+  constructor(onChange: () => void) {
+    this.onChange = onChange;
+  }
 
   get(account: string): Snapshot {
     return this.snapshots.get(account) ?? null;

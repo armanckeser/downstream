@@ -16,12 +16,14 @@ import type { ReviewEvent } from "../domain/model.ts";
 export class RepoContext {
   readonly store: Store;
   private workspaces = new Map<string, Workspace>();
+  readonly id: string;
+  readonly root: string;
+  readonly nameWithOwner: string | null;
 
-  constructor(
-    readonly id: string,
-    readonly root: string,
-    readonly nameWithOwner: string | null,
-  ) {
+  constructor(id: string, root: string, nameWithOwner: string | null) {
+    this.id = id;
+    this.root = root;
+    this.nameWithOwner = nameWithOwner;
     const dir = path.join(root, ".downstream");
     mkdirSync(dir, { recursive: true });
     excludeFromGit(root);
@@ -70,7 +72,10 @@ export class RepoRegistry {
   /** Every repo's review events, as ("event", repo, reviewId, event): the home page and agent sessions follow them. */
   readonly bus = new EventEmitter();
 
-  constructor(private readonly home: HomeStore) {
+  private readonly home: HomeStore;
+
+  constructor(home: HomeStore) {
+    this.home = home;
     this.bus.setMaxListeners(100);
   }
 

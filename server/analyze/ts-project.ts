@@ -46,14 +46,18 @@ export class TsProject {
   readonly service: ts.LanguageService;
   private readonly declCache = new Map<string, { sf: ts.SourceFile; decls: Decl[] }>();
   private readonly files: string[];
+  readonly root: string;
+  private readonly source: FileSource;
 
   constructor(
-    readonly root: string,
-    private readonly source: FileSource,
+    root: string,
+    source: FileSource,
     rootFiles: string[],
     configPath: string | null,
     registry: ts.DocumentRegistry = ts.createDocumentRegistry(),
   ) {
+    this.root = root;
+    this.source = source;
     let options = DEFAULTS;
     let names = rootFiles.map((f) => this.abs(f));
     if (configPath) {
@@ -188,12 +192,15 @@ export class TsProjects {
   private readonly configOf = new Map<string, string>();
   /** Shared so packages in one repo parse node_modules types once. */
   private readonly registry = ts.createDocumentRegistry();
+  private readonly root: string;
+  private readonly source: FileSource;
+  private readonly seedFiles: string[];
 
-  constructor(
-    private readonly root: string,
-    private readonly source: FileSource,
-    private readonly seedFiles: string[],
-  ) {}
+  constructor(root: string, source: FileSource, seedFiles: string[]) {
+    this.root = root;
+    this.source = source;
+    this.seedFiles = seedFiles;
+  }
 
   for(rel: string): TsProject | null {
     if (!isTsLike(rel)) return null;

@@ -25,10 +25,10 @@ class AgentSession {
   private readonly pending = new Map<string, (r: PermissionResult) => void>();
   private q: Query | null = null;
 
-  constructor(
-    input: StartInput,
-    private readonly changed: () => void,
-  ) {
+  private readonly changed: () => void;
+
+  constructor(input: StartInput, changed: () => void) {
+    this.changed = changed;
     this.view = { key: input.key, repo: input.repo, pr: input.pr, root: input.root, sessionId: input.resumeId ?? null, status: "starting", activity: [], approvals: [], error: null, resume: null };
   }
 
