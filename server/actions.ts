@@ -28,7 +28,8 @@ import { newId, now, type Store } from "./store.ts";
 import { resolveTarget, Workspace } from "./workspace.ts";
 import { tryGit } from "./analyze/git.ts";
 import { isTestFile } from "./analyze/graph.ts";
-import { draft, publish } from "./publish.ts";
+import { draft, HeadMoved, publish } from "./publish.ts";
+import { HEAD_MOVED } from "../domain/model.ts";
 
 export type ActionContext = {
   store: Store;
@@ -603,15 +604,16 @@ defineAction({
 defineAction({
   name: "review.publish",
   description:
-    "Send the review to the pull request on GitHub. Outward-facing and permanent: the agent only calls this when the user has explicitly said to send it.",
-  input: z.object({ event: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).optional(), body: z.string().optional() }),
-  run(ctx, input) {
+    "Send the review to the pull request on GitHub. Outward-facing and permanent: the agent only calls this when the user has explicitly said to send it. Refuses with 409 when the PR changed since the review was opened; `force` sends anyway, only when the user says so.",
+  input: z.object({ event: z.enum(["APPROVE", "REQUEST_CHANGES", "COMMENT"]).optional(), body: z.string().optional(), force: z.boolean().optional() }),
+  run(ctx, { force, ...input }) {
     const state = ctx.store.state(ctx.reviewId)!;
     const d = draft(ctx.root, state, input);
     let sent: { url: string; comments: number };
     try {
-      sent = publish(state, d);
+      sent = publish(state, d, { force });
     } catch (e) {
+      if (e instanceof HeadMoved) throw new ActionError(e.message, HEAD_MOVED);
       const err = e as Error & { stderr?: string };
       const detail = err.stderr?.toString().trim() || err.message;
       if (/own pull request/i.test(detail)) throw new ActionError("GitHub doesn't allow approving or requesting changes on your own pull request. Send it as Comment.", 422);

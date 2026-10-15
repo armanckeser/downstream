@@ -256,3 +256,6 @@ export type ReviewEvent = {
 
 /** The pull request on GitHub, when the review is of one. */
 export const prUrl = (review: Pick<Review, "repo" | "pr">): string | null => (review.repo && review.pr ? `https://github.com/${review.repo}/pull/${review.pr}` : null);
+
+/** The status `review.publish` answers with when the PR changed since the review was opened. */
+export const HEAD_MOVED = 409;

@@ -16,7 +16,14 @@ const PR_FIELDS = `
   stackEntry { position }
   commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
   reviewThreads(first: 100) { nodes { isResolved } }
-  latestReviews(first: 30) { nodes { author { login } state commit { oid } } }
+  latestReviews(first: 30) { nodes { author { login } state submittedAt } }
+  timelineItems(last: 40, itemTypes: [PULL_REQUEST_COMMIT, HEAD_REF_FORCE_PUSHED_EVENT, ISSUE_COMMENT, PULL_REQUEST_REVIEW]) { nodes {
+    __typename
+    ... on PullRequestCommit { commit { committedDate } }
+    ... on HeadRefForcePushedEvent { createdAt actor { login } }
+    ... on IssueComment { createdAt author { login } }
+    ... on PullRequestReview { submittedAt state author { login } }
+  } }
 `;
 
 const QUERY = `query($q: String!) { search(query: $q, type: ISSUE, first: 100) { nodes { ... on PullRequest { ${PR_FIELDS} } } } }`;
@@ -31,6 +38,16 @@ const SEARCHES = [
   { q: "is:pr is:open archived:false reviewed-by:@me -author:@me", requested: false },
   { q: "is:pr is:open archived:false author:@me", requested: false },
 ] as const;
+
+const Login = z.object({ login: z.string() });
+
+const TimelineItem = z.discriminatedUnion("__typename", [
+  z.object({ __typename: z.literal("PullRequestCommit"), commit: z.object({ committedDate: z.string() }) }),
+  z.object({ __typename: z.literal("HeadRefForcePushedEvent"), createdAt: z.string(), actor: Login.nullable() }),
+  z.object({ __typename: z.literal("IssueComment"), createdAt: z.string(), author: Login.nullable() }),
+  z.object({ __typename: z.literal("PullRequestReview"), submittedAt: z.string().nullable(), state: z.string(), author: Login.nullable() }),
+]);
+type TimelineItem = z.infer<typeof TimelineItem>;
 
 const Node = z.object({
   number: z.number(),
@@ -49,7 +66,8 @@ const Node = z.object({
   stackEntry: z.object({ position: z.number() }).nullable().optional(),
   commits: z.object({ nodes: z.array(z.object({ commit: z.object({ statusCheckRollup: z.object({ state: z.string() }).nullable() }) })) }),
   reviewThreads: z.object({ nodes: z.array(z.object({ isResolved: z.boolean() })) }),
-  latestReviews: z.object({ nodes: z.array(z.object({ author: z.object({ login: z.string() }).nullable(), state: z.string(), commit: z.object({ oid: z.string() }).nullable() })) }),
+  latestReviews: z.object({ nodes: z.array(z.object({ author: Login.nullable(), state: z.string(), submittedAt: z.string().nullable() })) }),
+  timelineItems: z.object({ nodes: z.array(TimelineItem) }),
 });
 type Node = z.infer<typeof Node>;
 
@@ -61,7 +79,7 @@ const DECISION: Record<NonNullable<Node["reviewDecision"]>, ReviewDecision> = { 
 
 function toFacts(node: Node, account: string, requested: boolean): PrFacts {
   const me = account.toLowerCase();
-  const mine = node.latestReviews.nodes.find((r) => r.author?.login.toLowerCase() === me && r.state !== "PENDING");
+  const myReviewAt = lastReviewBy(node, me);
   const rollup = node.commits.nodes[0]?.commit.statusCheckRollup?.state ?? null;
   return PrFacts.parse({
     repo: node.repository.nameWithOwner,
@@ -84,9 +102,47 @@ function toFacts(node: Node, account: string, requested: boolean): PrFacts {
     unresolvedThreads: node.reviewThreads.nodes.filter((t) => !t.isResolved).length,
     role: node.author?.login.toLowerCase() === me ? "author" : "reviewer",
     reviewRequested: requested,
-    myReviewSha: mine?.commit?.oid ?? null,
+    myReviewAt,
+    authorSince: myReviewAt ? authorActAfter(node, myReviewAt) : null,
     stack: node.stack && node.stackEntry ? { number: node.stack.number, size: node.stack.size, position: node.stackEntry.position } : null,
   });
+}
+
+/**
+ * When `me` last reviewed. `latestReviews` drops dismissed reviews, and repos
+ * that dismiss stale approvals on push would make a reviewed PR look unread, so
+ * the timeline's reviews count too.
+ */
+function lastReviewBy(node: Node, me: string): string | null {
+  const latest = node.latestReviews.nodes.filter((r) => r.author?.login.toLowerCase() === me && r.state !== "PENDING").map((r) => r.submittedAt);
+  const timeline = node.timelineItems.nodes.map((item) =>
+    item.__typename === "PullRequestReview" && item.author?.login.toLowerCase() === me && item.state !== "PENDING" ? item.submittedAt : null,
+  );
+  return [...latest, ...timeline].filter((at) => at !== null).sort().at(-1) ?? null;
+}
+
+const isAuthor = (node: Node, who: { login: string } | null) => !!who && who.login === node.author?.login;
+
+/**
+ * The author's latest push or reply after `after`. A force-push event carries
+ * the push time; a plain push only shows as commits, whose committed date is the
+ * best GraphQL offers, so a commit made before your review and pushed after it
+ * is missed.
+ */
+function authorActAfter(node: Node, after: string): PrFacts["authorSince"] {
+  const acts = node.timelineItems.nodes.flatMap((item: TimelineItem): NonNullable<PrFacts["authorSince"]>[] => {
+    switch (item.__typename) {
+      case "PullRequestCommit":
+        return [{ how: "pushed", at: item.commit.committedDate }];
+      case "HeadRefForcePushedEvent":
+        return isAuthor(node, item.actor) ? [{ how: "pushed", at: item.createdAt }] : [];
+      case "IssueComment":
+        return isAuthor(node, item.author) ? [{ how: "replied", at: item.createdAt }] : [];
+      case "PullRequestReview":
+        return isAuthor(node, item.author) && item.submittedAt ? [{ how: "replied", at: item.submittedAt }] : [];
+    }
+  });
+  return acts.filter((a) => Date.parse(a.at) > Date.parse(after)).sort((a, b) => b.at.localeCompare(a.at))[0] ?? null;
 }
 
 export async function fetchPrs(account: string): Promise<PrFacts[]> {

@@ -2,7 +2,8 @@
 // PR author, shown exactly as it will be sent. Nothing leaves until Send.
 import { useEffect, useMemo, useState } from "react";
 import { Check, Copy, ExternalLink, X } from "lucide-react";
-import { action } from "../lib/api.ts";
+import { action, ApiError } from "../lib/api.ts";
+import { HEAD_MOVED } from "@domain/model.ts";
 import { useReview } from "../lib/review.tsx";
 import { Markdown } from "./markdown.tsx";
 
@@ -31,6 +32,8 @@ export function SendReview({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  /** The PR changed since this review was opened; Send now means sending onto replaced code. */
+  const [moved, setMoved] = useState(false);
 
   // Re-draft whenever the review changes underneath (the agent may be rewording comments right now).
   useEffect(() => {
@@ -57,14 +60,16 @@ export function SendReview({ onClose }: { onClose: () => void }) {
   const folded = useMemo(() => draft?.comments.filter((c) => !c.inline) ?? [], [draft]);
   const canSend = !!draft?.target?.repo && !review?.published;
 
-  const send = async () => {
+  const send = async (force = false) => {
     setBusy(true);
     setError(null);
     try {
       await action("review.update", { outgoingBody: body });
-      await action("review.publish", { event: effective, ...(body.trim() ? { body } : {}) });
+      await action("review.publish", { event: effective, ...(body.trim() ? { body } : {}), ...(force ? { force } : {}) });
       setConfirming(false);
+      setMoved(false);
     } catch (e) {
+      setMoved(e instanceof ApiError && e.status === HEAD_MOVED);
       setError((e as Error).message);
     } finally {
       setBusy(false);
@@ -162,8 +167,8 @@ export function SendReview({ onClose }: { onClose: () => void }) {
               <button type="button" onClick={() => setConfirming(false)} className="press rounded-md px-2.5 py-1.5 text-[12.5px] text-ink-3 hover:bg-overlay">
                 Back
               </button>
-              <button type="button" disabled={busy} onClick={() => void send()} className="press rounded-md bg-ink px-3 py-1.5 text-[12.5px] font-medium text-page hover:bg-white disabled:opacity-40">
-                {busy ? "Sending…" : "Send"}
+              <button type="button" disabled={busy} onClick={() => void send(moved)} className="press rounded-md bg-ink px-3 py-1.5 text-[12.5px] font-medium text-page hover:bg-white disabled:opacity-40">
+                {busy ? "Sending…" : moved ? "Send anyway" : "Send"}
               </button>
             </div>
           ) : (

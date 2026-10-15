@@ -6,7 +6,7 @@ import { EventEmitter } from "node:events";
 import { homedir } from "node:os";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
-import type { Choices, Quadrant } from "../domain/inbox.ts";
+import { Quadrant, type Choices, type Placement } from "../domain/inbox.ts";
 import { now } from "./store.ts";
 
 /** Everything global lives here; `DOWNSTREAM_HOME` moves it (tests, a second install). */
@@ -16,10 +16,14 @@ export function downstreamHome(): string {
   return dir;
 }
 
+const PLACEMENTS: Placement[] = [...Quadrant.options, "hidden"];
+const TRIAGE = (table: string) =>
+  `CREATE TABLE IF NOT EXISTS ${table} (account TEXT NOT NULL, item_key TEXT NOT NULL, quadrant TEXT NOT NULL CHECK (quadrant IN (${PLACEMENTS.map((p) => `'${p}'`).join(", ")})), at TEXT NOT NULL, PRIMARY KEY (account, item_key));`;
+
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS repos (id TEXT PRIMARY KEY, root TEXT NOT NULL UNIQUE, name_with_owner TEXT, seen_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS triage (account TEXT NOT NULL, item_key TEXT NOT NULL, quadrant TEXT NOT NULL CHECK (quadrant IN ('do', 'next', 'delegate', 'someday')), at TEXT NOT NULL, PRIMARY KEY (account, item_key));
+${TRIAGE("triage")}
 CREATE TABLE IF NOT EXISTS launches (account TEXT NOT NULL, repo TEXT NOT NULL, pr INTEGER NOT NULL, root TEXT NOT NULL, session_id TEXT, at TEXT NOT NULL, PRIMARY KEY (repo, pr));
 `;
 
@@ -38,6 +42,7 @@ export class HomeStore {
     this.db.exec("PRAGMA journal_mode = WAL;");
     this.db.exec(SCHEMA);
     this.renameQuadrants();
+    this.allowEveryPlacement();
     this.bus.setMaxListeners(100);
   }
 
@@ -81,7 +86,7 @@ export class HomeStore {
   // -- where you moved things in the matrix ------------------------------------------
 
   choices(account: string): Choices {
-    const rows = this.db.prepare("SELECT item_key, quadrant, at FROM triage WHERE account = ?").all(account) as { item_key: string; quadrant: Quadrant; at: string }[];
+    const rows = this.db.prepare("SELECT item_key, quadrant, at FROM triage WHERE account = ?").all(account) as { item_key: string; quadrant: Placement; at: string }[];
     return Object.fromEntries(rows.map((r) => [r.item_key, { quadrant: r.quadrant, at: r.at }]));
   }
 
@@ -96,8 +101,23 @@ export class HomeStore {
     });
   }
 
-  /** `null` hands the item back to Downstream's read. */
-  choose(account: string, key: string, quadrant: Quadrant | null) {
+  /**
+   * SQLite can't change a CHECK in place: a triage table made before a placement
+   * existed ("hidden") is rebuilt with today's list, keeping every choice.
+   */
+  private allowEveryPlacement() {
+    const row = this.db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'triage'").get() as { sql: string } | undefined;
+    if (!row || PLACEMENTS.every((p) => row.sql.includes(`'${p}'`))) return;
+    this.tx(() => {
+      this.db.exec(TRIAGE("triage_next"));
+      this.db.exec("INSERT INTO triage_next (account, item_key, quadrant, at) SELECT account, item_key, quadrant, at FROM triage");
+      this.db.exec("DROP TABLE triage");
+      this.db.exec("ALTER TABLE triage_next RENAME TO triage");
+    });
+  }
+
+  /** `null` hands the item back to Downstream's read; "hidden" hides it from every list until it changes. */
+  choose(account: string, key: string, quadrant: Placement | null) {
     if (quadrant === null) this.db.prepare("DELETE FROM triage WHERE account = ? AND item_key = ?").run(account, key);
     else this.db.prepare("INSERT INTO triage (account, item_key, quadrant, at) VALUES (?, ?, ?, ?) ON CONFLICT (account, item_key) DO UPDATE SET quadrant = excluded.quadrant, at = excluded.at").run(account, key, quadrant, now());
     this.changed();

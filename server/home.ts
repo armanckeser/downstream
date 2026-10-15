@@ -15,7 +15,8 @@ import type { HomeStore } from "./home-store.ts";
 import type { RepoContext, RepoRegistry } from "./repos.ts";
 import type { ReviewEvent } from "../domain/model.ts";
 import type { AgentHost } from "./agent-host.ts";
-import { promptFor } from "./prompts.ts";
+import { promptFor, stalePrompt } from "./prompts.ts";
+import { decide, GitHubRefused, NotOffered, StaleDecision } from "./stale.ts";
 import { ActionError } from "./actions.ts";
 
 const STALE_AFTER_MS = 60_000;
@@ -131,20 +132,31 @@ export function homeRoutes(deps: { home: HomeStore; repos: RepoRegistry; agents:
     };
   }
 
-  /** Start (or resume) the agent on an item. Returns where the browser should go. */
-  async function start(account: string, key: string): Promise<{ path: string } | { url: string }> {
-    const item = items(account).find((i) => i.key === key);
+  /** A PR in the stale sweep, or a 404 the browser shows as "refresh". */
+  function staleItem(account: string, key: string): Item {
+    const inbox = arrange(items(account), home.choices(account), new Date(), cache.get(account)?.touches ?? []);
+    const item = inbox.stale.find((i) => i.key === key);
+    if (!item) throw new ActionError("That pull request isn't stale any more. Refresh.", 404);
+    return item;
+  }
+
+  /**
+   * Start (or resume) the agent on an item. Returns where the browser should go.
+   * `stale` asks for a recommendation instead of the item's move.
+   */
+  async function start(account: string, key: string, ask: "move" | "stale" = "move"): Promise<{ path: string } | { url: string }> {
+    const item = ask === "stale" ? staleItem(account, key) : items(account).find((i) => i.key === key);
     if (!item) throw new ActionError("That pull request isn't in your inbox any more. Refresh.", 404);
     const pr = item.lead;
     const opens = MOVES[item.move.kind].opens;
-    if (opens === "github") return { url: pr.url };
+    if (ask === "move" && opens === "github") return { url: pr.url };
     const agentKey = prKey(pr.repo, pr.number);
     const existing = sessions()[agentKey];
     const where = existing?.review ? { path: existing.review.path } : { path: `/s/${encodeURIComponent(agentKey)}` };
     if (agents.live(agentKey)) return where;
     const root = repos.find(pr.repo) ?? (await repos.clone(pr.repo, account));
     repos.register(root);
-    const prompt = promptFor(item);
+    const prompt = ask === "stale" ? stalePrompt(item) : promptFor(item);
     if (!prompt) return { url: pr.url };
     const previous = home.launch(pr.repo, pr.number);
     home.putLaunch({ account, repo: pr.repo, pr: pr.number, root, sessionId: null });
@@ -209,6 +221,8 @@ export function homeRoutes(deps: { home: HomeStore; repos: RepoRegistry; agents:
     "home.choose": z.object({ key: z.string(), quadrant: Quadrant.nullable() }),
     "home.refresh": z.object({}),
     "home.start": z.object({ key: z.string() }),
+    "stale.decide": z.object({ key: z.string(), decision: StaleDecision }),
+    "stale.ask": z.object({ key: z.string() }),
     "agent.send": z.object({ key: z.string(), text: z.string().min(1) }),
     "agent.decide": z.object({ key: z.string(), approvalId: z.string(), allow: z.boolean() }),
     "agent.handoff": z.object({ key: z.string() }),
@@ -240,6 +254,24 @@ export function homeRoutes(deps: { home: HomeStore; repos: RepoRegistry; agents:
       case "home.start": {
         if (!account) throw new ActionError("No GitHub account.");
         return c.json(await start(account, (input as { key: string }).key));
+      }
+      case "stale.decide": {
+        if (!account) throw new ActionError("No GitHub account.");
+        const { key, decision } = input as z.infer<(typeof HomeActions)["stale.decide"]>;
+        try {
+          await decide(account, staleItem(account, key), decision, () => home.choose(account, key, "hidden"));
+        } catch (e) {
+          if (e instanceof NotOffered) throw new ActionError(e.message, 422);
+          if (e instanceof GitHubRefused) throw new ActionError(`GitHub refused: ${e.message}`, 502);
+          throw e;
+        }
+        // The hide shows at once; what GitHub now says arrives with the next fetch.
+        void cache.refresh(account, true);
+        return c.json({ ok: true });
+      }
+      case "stale.ask": {
+        if (!account) throw new ActionError("No GitHub account.");
+        return c.json(await start(account, (input as { key: string }).key, "stale"));
       }
       case "agent.send": {
         const { key, text } = input as z.infer<(typeof HomeActions)["agent.send"]>;

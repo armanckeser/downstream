@@ -29,6 +29,13 @@ function reviewPrompt(number: number, repo: string): string {
   ].join(" ");
 }
 
+/** For a PR nobody has touched in weeks: a recommendation, with nothing posted. */
+export function stalePrompt(item: Item): string {
+  const { number, url, role } = item.lead;
+  const options = role === "author" ? "ask the reviewers to look, close it, or leave it" : "remove myself as a reviewer, ask the author whether it's still going, review it, or leave it";
+  return `Pull request #${number} (${url}) has had no activity for weeks. Read the description, the conversation and the review threads (\`gh pr view ${number} --comments\`, review threads through \`gh api graphql\`) and tell me in a few lines where it stands and whether I should ${options}. Don't post, push or change anything.`;
+}
+
 export function promptFor(item: Item): string | null {
   const make = PROMPTS[item.move.kind];
   return make ? make({ number: item.lead.number, repo: item.lead.repo, url: item.lead.url }) : null;

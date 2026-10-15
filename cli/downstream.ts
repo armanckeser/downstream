@@ -309,7 +309,7 @@ Write (the browser uses the same actions)
   verdict approve|changes|comment ["…"]
   outgoing <thread> "…" [--exclude]   word a thread for the PR author, or keep it private
   draft                    the review exactly as it would be sent
-  send [--event comment]   send it to the PR, only when the user has said to
+  send [--event comment] [--force]   send it to the PR, only when the user has said to (--force: even though the PR changed since you opened it)
   reanalyze                re-read the code after edits
   do <action> '<json>'     call any action directly
 
@@ -484,7 +484,7 @@ async function main() {
     case "send": {
       const raw = str("event")?.toLowerCase();
       const event = raw === "approve" ? "APPROVE" : raw === "changes" || raw === "request_changes" ? "REQUEST_CHANGES" : raw === "comment" ? "COMMENT" : undefined;
-      const res = await call<{ url: string; comments: number }>("review.publish", event ? { event } : {});
+      const res = await call<{ url: string; comments: number }>("review.publish", { ...(event ? { event } : {}), ...(opts.force ? { force: true } : {}) });
       console.log(`Sent: ${res.url} (${res.comments} inline comments)`);
       return;
     }

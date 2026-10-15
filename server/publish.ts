@@ -113,9 +113,27 @@ function defaultBody(state: ReviewState, comments: DraftComment[]): string {
   return lines.join("\n\n");
 }
 
-export function publish(state: ReviewState, d: Draft): { url: string; comments: number } {
+/** The PR moved on after the review was opened: its comments would sit on code that has been replaced. */
+export class HeadMoved extends Error {
+  constructor(
+    readonly reviewed: string,
+    readonly current: string,
+    pr: number,
+  ) {
+    super(
+      `#${pr} changed since you opened this review (${reviewed.slice(0, 7)} → ${current.slice(0, 7)}), so these comments would land on replaced code. Re-open it with \`downstream open --pr ${pr}\` to review what's there now, or send anyway.`,
+    );
+  }
+}
+
+/** Sends the review. Refuses when the PR's head moved since it was opened, unless `force`. */
+export function publish(state: ReviewState, d: Draft, opts: { force?: boolean } = {}): { url: string; comments: number } {
   const { review } = state;
   if (!review.pr || !d.target?.repo) throw new Error("Only pull request reviews can be sent. Open with `downstream open --pr <n>`, or copy the markdown.");
+  if (!opts.force) {
+    const current = gh(["pr", "view", String(review.pr), "--repo", d.target.repo, "--json", "headRefOid", "--jq", ".headRefOid"], { account: review.account }).trim();
+    if (current && current !== review.head) throw new HeadMoved(review.head, current, review.pr);
+  }
   const payload = {
     commit_id: review.head,
     event: d.event,

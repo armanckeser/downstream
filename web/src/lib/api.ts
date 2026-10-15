@@ -5,7 +5,14 @@ import type { HomeView } from "@domain/home.ts";
 import type { AgentView } from "@domain/agent.ts";
 import type { PrDetail } from "@domain/pr-detail.ts";
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
 
 let repoApi = "/api";
 let reviewId: string | null = null;
@@ -23,7 +30,7 @@ const withReview = (path: string) => (reviewId ? `${path}${path.includes("?") ? 
 async function post<T>(url: string, body: unknown): Promise<T> {
   const r = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-downstream-actor": "user" }, body: JSON.stringify(body) });
   const json = (await r.json().catch(() => ({}))) as T & { error?: string };
-  if (!r.ok) throw new ApiError(json.error ?? `${url} failed (${r.status})`);
+  if (!r.ok) throw new ApiError(json.error ?? `${url} failed (${r.status})`, r.status);
   return json;
 }
 
@@ -34,7 +41,7 @@ export async function action<T = unknown>(name: string, input: unknown = {}): Pr
 export async function get<T>(path: string, signal?: AbortSignal): Promise<T> {
   const r = await fetch(path, { signal });
   const body = (await r.json().catch(() => ({}))) as T & { error?: string };
-  if (!r.ok) throw new ApiError(body?.error ?? `${path} failed (${r.status})`);
+  if (!r.ok) throw new ApiError(body?.error ?? `${path} failed (${r.status})`, r.status);
   return body;
 }
 

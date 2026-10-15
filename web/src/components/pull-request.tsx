@@ -2,7 +2,7 @@
 // its next move looks like, why it's where it is, who wrote it, where it lives.
 import type { ReactNode } from "react";
 import { ArrowUpRight, ChevronDown, CircleX, Clock, Eye, GitCompareArrows, GitMerge, GitPullRequestDraft, MessageSquareReply, ScanEye } from "lucide-react";
-import { MOVES, type Item, type MoveKind, type Quadrant, type Triaged, type Why } from "@domain/inbox.ts";
+import { MOVES, type Item, type MoveKind, type Quadrant, type Triaged, type TurnBack, type Why } from "@domain/inbox.ts";
 import type { PrSession } from "@domain/home.ts";
 import type { ReviewMove } from "@domain/next-move.ts";
 import { timeAgo } from "../lib/time.ts";
@@ -23,7 +23,7 @@ export const QUADRANTS: { id: Quadrant; label: string; key: string; hint: string
   { id: "do", label: "Do", key: "d", hint: "Someone needs you, or you're in the middle of it" },
   { id: "next", label: "Next", key: "n", hint: "Yours or your agents' work, nobody blocked yet: once Do is empty" },
   { id: "delegate", label: "Delegate", key: "g", hint: "Someone's waiting, outside what you're working on: let the agent take the first pass" },
-  { id: "someday", label: "Someday", key: "s", hint: "Out of sight until something happens on it: drafts you haven't opened, anything quiet for two weeks" },
+  { id: "someday", label: "Someday", key: "s", hint: "Out of sight until something happens on it: drafts you haven't opened lately" },
 ];
 export const QUADRANT = Object.fromEntries(QUADRANTS.map((q) => [q.id, q])) as Record<Quadrant, (typeof QUADRANTS)[number]>;
 
@@ -80,14 +80,19 @@ export const ago = (iso: string) => (timeAgo(iso) === "just now" ? "just now" : 
 
 export const HOW: Record<string, string> = { reviewed: "reviewed", commented: "commented", opened: "opened it", pushed: "pushed" };
 
+/** What the author did that made a PR you reviewed yours again. */
+const TURN: Record<TurnBack["how"], string> = { pushed: "Pushed", replied: "Replied", "re-requested": "Asked again" };
+
 /** The reason in a few words; `short` for a row. */
 export function whyText(why: Why, item: Item, short = false): string {
   switch (why.kind) {
+    case "your-turn":
+      return short ? `${TURN[why.how]} ${ago(why.at)}` : `${why.who} ${TURN[why.how].toLowerCase()} after your review`;
     case "in-focus":
       return `You ${HOW[why.how]} ${ago(why.at)}`;
     case "person-waiting":
       if (short) return `Waiting ${timeAgo(why.since)}`;
-      return `${why.who} is waiting on you${why.engaged ? ", and you reviewed it before" : ""}`;
+      return `${why.who} is waiting on you`;
     case "feedback-on-yours":
       return short ? "Feedback for you" : `Reviewers left feedback${item.move.kind === "address-feedback" && item.move.threads ? ` in ${item.move.threads} thread${item.move.threads === 1 ? "" : "s"}` : ""}`;
     case "ready-to-merge":
@@ -98,8 +103,6 @@ export function whyText(why: Why, item: Item, short = false): string {
       return short ? "Agent's work" : `${why.who}'s work, ready for you`;
     case "draft":
       return short ? "Draft" : "A draft you haven't opened lately";
-    case "quiet":
-      return short ? `Quiet ${timeAgo(why.since)}` : `Nothing has happened in ${timeAgo(why.since)}`;
     case "you-chose":
       return short ? "You moved it" : `You moved it here; Downstream read it as ${QUADRANT[(item as Triaged).auto.quadrant].label}`;
   }

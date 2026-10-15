@@ -13,6 +13,7 @@ import { navigate } from "../lib/route.ts";
 import { Mark } from "../components/brand.tsx";
 import { Menu, MenuItem, Tip } from "../components/menu.tsx";
 import { PrPreview } from "../components/pr-preview.tsx";
+import { StaleCard, StaleSweep } from "../components/stale-sweep.tsx";
 import { ago, Avatar, MOVE_ICON, PrLink, QUADRANT, QUADRANTS, QuadrantMenu, SessionLine, StackLine, verbOf, whyText } from "../components/pull-request.tsx";
 
 export function Home() {
@@ -22,6 +23,7 @@ export function Home() {
   const [starting, setStarting] = useState<string | null>(null);
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [preview, setPreview] = useState<string | null>(null);
+  const [sweeping, setSweeping] = useState(false);
 
   const load = useCallback(() => {
     fetchHome()
@@ -79,6 +81,8 @@ export function Home() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
+      // The sweep has its own keys.
+      if (sweeping) return;
       if (target.closest("input, textarea, select, [role=menu]") || e.metaKey || e.ctrlKey || e.altKey) return;
       const step = e.key === "j" || e.key === "ArrowDown" ? 1 : e.key === "k" || e.key === "ArrowUp" ? -1 : 0;
       if (step) {
@@ -147,6 +151,8 @@ export function Home() {
             </Fold>
           )}
 
+          {inbox.stale.length > 0 && <StaleCard count={inbox.stale.length} onOpen={() => (setPreview(null), setSweeping(true))} />}
+
           {inbox.waiting.length > 0 && (
             <Fold label="Waiting on others" title="Nothing for you to do until someone else moves" count={inbox.waiting.length} open={!!open.waiting} onToggle={() => toggle("waiting")}>
               <ul>
@@ -168,6 +174,8 @@ export function Home() {
           </p>
         </>
       )}
+
+      {sweeping && inbox && <StaleSweep items={inbox.stale} onClose={() => setSweeping(false)} />}
 
       {previewed && (
         <PrPreview item={previewed} session={sessionOf(previewed)} starting={starting === previewed.key} onStart={() => void start(previewed)} onChoose={(q) => choose(previewed, q)} onClose={() => setPreview(null)} />

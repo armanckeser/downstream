@@ -121,7 +121,7 @@ The conversation in the margin is between you and the user and never leaves. Wha
 - **The verdict.** `downstream verdict changes|approve|comment "…"`. GitHub doesn't allow approving or requesting changes on your own pull request; use comment there.
 - `downstream draft` prints exactly what would be sent: the event, the body, each inline comment, and the comments that fall outside the diff (GitHub only takes inline comments on changed lines and their context, so those go into the body).
 
-Sending is public and permanent. **Never run `downstream send` on your own initiative.** The user sends from the Send review panel, or tells you to in chat ("send it"); then run `downstream draft`, show them the verdict and the number of comments in one line, and send only after they confirm. Only pull request reviews (`open --pr`) can be sent; for anything else the panel copies the review as markdown.
+Sending is public and permanent. **Never run `downstream send` on your own initiative.** The user sends from the Send review panel, or tells you to in chat ("send it"); then run `downstream draft`, show them the verdict and the number of comments in one line, and send only after they confirm. Only pull request reviews (`open --pr`) can be sent; for anything else the panel copies the review as markdown. If the PR changed since you opened it, `send` refuses: tell the user, and offer to re-open it (`open --pr <n>`) or, only if they say so, `send --force`.
 
 ## Languages
 

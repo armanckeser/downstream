@@ -16,6 +16,9 @@ export type ReviewDecision = z.infer<typeof ReviewDecision>;
 
 const TouchAt = z.object({ at: z.string(), how: z.enum(["reviewed", "commented", "opened", "pushed"]) });
 
+/** What the author did after your last review that hands the PR back to you. */
+const AuthorAct = z.object({ how: z.enum(["pushed", "replied"]), at: z.string() });
+
 /** A pull request as GitHub describes it, from the point of view of one account. */
 export const PrFacts = z.object({
   repo: z.string(),
@@ -41,8 +44,10 @@ export const PrFacts = z.object({
   role: z.enum(["author", "reviewer"]),
   /** A review from this account is requested right now. */
   reviewRequested: z.boolean(),
-  /** The commit this account last reviewed, if it ever did. */
-  myReviewSha: z.string().nullable(),
+  /** When this account last reviewed, if it ever did. */
+  myReviewAt: z.string().nullable(),
+  /** The author's latest push or reply after that review. Null when there is none, or no review. */
+  authorSince: AuthorAct.nullable(),
   /** GitHub's native stacks (`gh stack`): position 1 sits on the base branch. */
   stack: z.object({ number: z.number().int(), size: z.number().int(), position: z.number().int() }).nullable(),
   /** The last time this account reviewed, commented on, opened or pushed to it, from its event feed. */
@@ -63,11 +68,14 @@ export function withTouches(prs: PrFacts[], touches: Touch[]): PrFacts[] {
 
 export type WaitingOn = "author" | "reviewers" | "checks" | "lower-layer";
 
+/** Why a PR you reviewed is your turn again. */
+export type TurnBack = { how: z.infer<typeof AuthorAct>["how"] | "re-requested"; at: string };
+
 /** The one next action. `waiting` means the next action is someone else's. */
 export type Move =
   | { kind: "merge" }
   | { kind: "review" }
-  | { kind: "rereview" }
+  | { kind: "rereview"; because: TurnBack }
   | { kind: "address-feedback"; threads: number }
   | { kind: "resolve-conflicts" }
   | { kind: "fix-checks" }
@@ -100,14 +108,14 @@ export const WAITING_ON: Record<WaitingOn, string> = {
   "lower-layer": "the PR below it",
 };
 
-/** The next action for a single PR, ignoring the stack it may sit in. */
+/**
+ * The next action for a single PR, ignoring the stack it may sit in. Once you
+ * have reviewed, the PR is the author's turn until they push, reply or ask you
+ * again. Commit ids can't tell this: a review posted on a commit the author
+ * force-pushed away mid-review would look like new work forever.
+ */
 export function moveFor(pr: PrFacts): Move {
-  if (pr.role === "reviewer") {
-    const reviewed = pr.myReviewSha !== null;
-    if (reviewed && pr.myReviewSha !== pr.headSha) return { kind: "rereview" };
-    if (pr.reviewRequested) return { kind: "review" };
-    return { kind: "waiting", on: "author" };
-  }
+  if (pr.role === "reviewer") return reviewerMove(pr);
   if (pr.mergeable === "conflicting") return { kind: "resolve-conflicts" };
   if (pr.checks === "failing") return { kind: "fix-checks" };
   if (pr.reviewDecision === "changes_requested" || pr.unresolvedThreads > 0) return { kind: "address-feedback", threads: pr.unresolvedThreads };
@@ -115,6 +123,14 @@ export function moveFor(pr: PrFacts): Move {
   if (pr.checks === "pending") return { kind: "waiting", on: "checks" };
   if (pr.reviewDecision === "approved" && pr.mergeable === "mergeable") return { kind: "merge" };
   return { kind: "waiting", on: "reviewers" };
+}
+
+function reviewerMove(pr: PrFacts): Move {
+  if (pr.myReviewAt === null) return pr.reviewRequested ? { kind: "review" } : { kind: "waiting", on: "author" };
+  // Reviewing fulfils a request, so a request standing after your review was made again.
+  if (pr.reviewRequested) return { kind: "rereview", because: { how: "re-requested", at: pr.updatedAt } };
+  if (pr.authorSince) return { kind: "rereview", because: pr.authorSince };
+  return { kind: "waiting", on: "author" };
 }
 
 /** One thing on the list: a lone PR, or a stack you work bottom to top. */
@@ -168,7 +184,12 @@ function dedupe(prs: PrFacts[]): PrFacts[] {
   for (const pr of prs) {
     const key = `${pr.repo}#${pr.number}`;
     const seen = byKey.get(key);
-    byKey.set(key, seen ? { ...seen, reviewRequested: seen.reviewRequested || pr.reviewRequested, myReviewSha: seen.myReviewSha ?? pr.myReviewSha } : pr);
+    byKey.set(
+      key,
+      seen
+        ? { ...seen, reviewRequested: seen.reviewRequested || pr.reviewRequested, myReviewAt: seen.myReviewAt ?? pr.myReviewAt, authorSince: seen.authorSince ?? pr.authorSince }
+        : pr,
+    );
   }
   return [...byKey.values()];
 }
@@ -178,21 +199,21 @@ export type Quadrant = z.infer<typeof Quadrant>;
 
 /** Why an item sits where it does, in the words the row shows. */
 export type Why =
+  | { kind: "your-turn"; who: string; how: TurnBack["how"]; at: string }
   | { kind: "in-focus"; at: string; how: Touch["how"] }
-  | { kind: "person-waiting"; who: string; since: string; engaged: boolean }
+  | { kind: "person-waiting"; who: string; since: string }
   | { kind: "feedback-on-yours" }
   | { kind: "ready-to-merge" }
   | { kind: "yours" }
   | { kind: "bot-work"; who: string }
   | { kind: "draft" }
-  | { kind: "quiet"; since: string }
   | { kind: "you-chose" };
 
 export type Triaged = Item & { quadrant: Quadrant; why: Why; auto: { quadrant: Quadrant; why: Why } };
 
 /** Touched in the last three days: what you're in the middle of. */
 const FOCUS_WINDOW_MS = 3 * 24 * 3600_000;
-/** No activity from anyone for two weeks: it has gone quiet, whatever its state says. */
+/** No activity from anyone for two weeks: it has gone stale, whatever its state says, and needs a decision rather than a slot. */
 const QUIET_AFTER_MS = 14 * 24 * 3600_000;
 
 const latestTouch = (item: Item) =>
@@ -203,16 +224,17 @@ const lastActivity = (item: Item) => [...item.prs.map((p) => p.updatedAt), lates
  * Downstream's read of one item. Urgent: a person is blocked on you (their
  * review, feedback on your PR) or it's done and only needs merging. Important:
  * you're working on it or near it (touched lately, or you touched another PR by
- * the same author), you reviewed it before, or it's yours. What you've left
- * alone says "someday": drafts you haven't opened lately, anything gone quiet.
+ * the same author), or it's yours. A PR handed back after your review is both.
+ * Drafts you haven't opened lately say "someday". Stale PRs never reach here.
  */
 export function triage(item: Item, context: { now: Date; focusAuthors: Set<string> }): { quadrant: Quadrant; why: Why } {
   const now = context.now.getTime();
   const pr = item.lead;
+  // Before focus: "you reviewed 1h ago" would hide that the author answered since.
+  if (item.move.kind === "rereview") return { quadrant: "do", why: { kind: "your-turn", who: pr.authorName ?? pr.author, ...item.move.because } };
   const touch = latestTouch(item);
   const inFocus = touch !== null && now - Date.parse(touch.at) <= FOCUS_WINDOW_MS;
   if (inFocus) return { quadrant: "do", why: { kind: "in-focus", at: touch.at, how: touch.how } };
-  if (now - Date.parse(lastActivity(item)) > QUIET_AFTER_MS) return { quadrant: "someday", why: { kind: "quiet", since: lastActivity(item) } };
   if (pr.isDraft) return { quadrant: "someday", why: { kind: "draft" } };
 
   const yours = pr.role === "author";
@@ -221,10 +243,8 @@ export function triage(item: Item, context: { now: Date; focusAuthors: Set<strin
   if (yours) return { quadrant: "next", why: { kind: "yours" } };
   if (pr.authorKind === "bot") return { quadrant: "next", why: { kind: "bot-work", who: pr.author } };
 
-  const engaged = item.move.kind === "rereview";
-  const waiting: Why = { kind: "person-waiting", who: pr.authorName ?? pr.author, since: pr.updatedAt, engaged };
-  const important = engaged || context.focusAuthors.has(pr.author);
-  return { quadrant: important ? "do" : "delegate", why: waiting };
+  const waiting: Why = { kind: "person-waiting", who: pr.authorName ?? pr.author, since: pr.updatedAt };
+  return { quadrant: context.focusAuthors.has(pr.author) ? "do" : "delegate", why: waiting };
 }
 
 export type Inbox = {
@@ -236,14 +256,20 @@ export type Inbox = {
   someday: Triaged[];
   /** Waiting on someone else: not yours to act on. */
   waiting: Item[];
+  /** Nothing from anyone for two weeks, oldest first: each needs a decision, one at a time. */
+  stale: Item[];
 };
 
 /**
  * Your choices, by item key, with when you made them. A choice outlives
- * Downstream's read, with one exception: Someday is "until something happens",
- * so activity on the PR after you chose it brings the PR back to a fresh read.
+ * Downstream's read, with two exceptions that mean "until something happens":
+ * Someday, and hidden (hidden from every list). Activity on the PR after you
+ * chose either brings it back to a fresh read.
  */
-export type Choices = Record<string, { quadrant: Quadrant; at: string }>;
+export type Placement = Quadrant | "hidden";
+export type Choices = Record<string, { quadrant: Placement; at: string }>;
+
+const UNTIL_IT_CHANGES: ReadonlySet<Placement> = new Set(["someday", "hidden"]);
 
 /**
  * Read every item, apply your choices over the reads, and order each quadrant.
@@ -251,34 +277,67 @@ export type Choices = Record<string, { quadrant: Quadrant; at: string }>;
  * lately, including ones already merged.
  */
 export function arrange(items: Item[], choices: Choices, now: Date, touches: Touch[]): Inbox {
-  const actionable = items.filter((i) => i.move.kind !== "waiting");
+  const standing = (item: Item) => {
+    const chosen = choices[item.key];
+    const woke = chosen !== undefined && UNTIL_IT_CHANGES.has(chosen.quadrant) && lastActivity(item) > chosen.at;
+    return chosen && !woke ? chosen.quadrant : null;
+  };
+  const shown = items.filter((i) => standing(i) !== "hidden");
+  const isStale = (i: Item) => now.getTime() - Date.parse(lastActivity(i)) > QUIET_AFTER_MS;
+  const stale = shown.filter(isStale).sort((a, b) => lastActivity(a).localeCompare(lastActivity(b)));
+  const fresh = shown.filter((i) => !isStale(i));
+  const actionable = fresh.filter((i) => i.move.kind !== "waiting");
   const recent = touches.filter((t) => now.getTime() - Date.parse(t.at) <= FOCUS_WINDOW_MS);
   const focusAuthors = new Set(recent.map((t) => t.author).filter((a) => a !== null));
   const triaged = actionable.map((item): Triaged => {
     const auto = triage(item, { now, focusAuthors });
-    const chosen = choices[item.key];
-    const woke = chosen?.quadrant === "someday" && lastActivity(item) > chosen.at;
-    return chosen && !woke && chosen.quadrant !== auto.quadrant ? { ...item, quadrant: chosen.quadrant, why: { kind: "you-chose" }, auto } : { ...item, ...auto, auto };
+    const chosen = standing(item);
+    return chosen && chosen !== "hidden" && chosen !== auto.quadrant ? { ...item, quadrant: chosen, why: { kind: "you-chose" }, auto } : { ...item, ...auto, auto };
   });
   const of = (q: Quadrant) => triaged.filter((t) => t.quadrant === q).sort(ORDER[q]);
   const inbox = { do: of("do"), next: of("next"), delegate: of("delegate"), someday: of("someday") };
   return {
     top: inbox.do[0] ?? inbox.next[0] ?? inbox.delegate[0] ?? null,
     ...inbox,
-    waiting: items.filter((i) => i.move.kind === "waiting").sort((a, b) => b.lead.updatedAt.localeCompare(a.lead.updatedAt)),
+    waiting: fresh.filter((i) => i.move.kind === "waiting").sort((a, b) => b.lead.updatedAt.localeCompare(a.lead.updatedAt)),
+    stale,
   };
 }
 
+/** When the person on the other side last handed it to you. */
+const waitedLongest = (t: Triaged) => (t.why.kind === "your-turn" ? t.why.at : t.lead.updatedAt);
 const oldestFirst = (a: Item, b: Item) => a.lead.updatedAt.localeCompare(b.lead.updatedAt);
 const newestFirst = (a: Item, b: Item) => b.lead.updatedAt.localeCompare(a.lead.updatedAt);
 const byMove = (a: Item, b: Item) => MOVES[a.move.kind].rank - MOVES[b.move.kind].rank;
 
 /** Do: people blocked on you first, longest wait first (they can't move without you); then what you're in the middle of, latest first. */
-const DO_ORDER: Record<Why["kind"], number> = { "person-waiting": 0, "feedback-on-yours": 1, "ready-to-merge": 2, "you-chose": 3, "in-focus": 4, yours: 5, "bot-work": 5, draft: 6, quiet: 6 };
+const DO_ORDER: Record<Why["kind"], number> = { "your-turn": 0, "person-waiting": 0, "feedback-on-yours": 1, "ready-to-merge": 2, "you-chose": 3, "in-focus": 4, yours: 5, "bot-work": 5, draft: 6 };
 
 const ORDER: Record<Quadrant, (a: Triaged, b: Triaged) => number> = {
-  do: (a, b) => DO_ORDER[a.why.kind] - DO_ORDER[b.why.kind] || (a.why.kind === "in-focus" && b.why.kind === "in-focus" ? b.why.at.localeCompare(a.why.at) : oldestFirst(a, b)),
+  do: (a, b) => DO_ORDER[a.why.kind] - DO_ORDER[b.why.kind] || (a.why.kind === "in-focus" && b.why.kind === "in-focus" ? b.why.at.localeCompare(a.why.at) : waitedLongest(a).localeCompare(waitedLongest(b))),
   next: (a, b) => byMove(a, b) || newestFirst(a, b),
   delegate: oldestFirst,
   someday: newestFirst,
 };
+
+/** What a stale PR can be decided into. Skip isn't one: it decides nothing. */
+export type StaleChoice =
+  /** GitHub: deletes your review request. Here: hidden until it changes. */
+  | { kind: "remove-request" }
+  /** GitHub: posts a comment you write first. Here: hidden until it changes. */
+  | { kind: "comment"; to: "author" | "reviewers" }
+  /** GitHub: closes your PR with your reason as a comment. */
+  | { kind: "close" }
+  /** Here only. `nextMove: "yours"` means nobody else will act, so it may never come back. */
+  | { kind: "hide"; nextMove: "yours" | "theirs" }
+  /** Starts the agent on the thread; it posts nothing. */
+  | { kind: "ask-agent" };
+
+/** The choices a stale item offers, in the order they're shown. */
+export function staleChoices(item: Item): StaleChoice[] {
+  const pr = item.lead;
+  const hide: StaleChoice = { kind: "hide", nextMove: item.move.kind === "waiting" ? "theirs" : "yours" };
+  if (pr.role === "author") return [{ kind: "comment", to: "reviewers" }, { kind: "close" }, hide, { kind: "ask-agent" }];
+  const request: StaleChoice[] = pr.reviewRequested ? [{ kind: "remove-request" }] : [];
+  return [...request, { kind: "comment", to: "author" }, hide, { kind: "ask-agent" }];
+}
