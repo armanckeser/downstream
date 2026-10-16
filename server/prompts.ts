@@ -11,7 +11,13 @@ type PromptInput = { number: number; repo: string; url: string; opened: boolean 
 
 const PROMPTS: Partial<Record<MoveKind, (pr: PromptInput) => string>> = {
   review: ({ number, repo, opened }) => reviewPrompt(number, repo, opened),
-  rereview: ({ number, repo, opened }) => `${reviewPrompt(number, repo, opened)} I reviewed it before; start from what changed since my last review.`,
+  rereview: ({ number, repo, opened }) =>
+    [
+      `The author handed pull request #${number} of ${repo} back to me after my last review. This is a new round: the review I already sent is finished${opened ? "" : ", so open a new one"}.`,
+      reviewPrompt(number, repo, opened),
+      `Before anything else, check whether they addressed what I asked for: read my last review and its threads (\`gh pr view ${number} --comments\`, review threads through \`gh api graphql\`) and the commits and replies since it.`,
+      "Lead the summary with each of my points: addressed (name the commit), answered in a reply without a change, or still open. Keep the still-open ones as findings; then review only what changed since.",
+    ].join(" "),
   "address-feedback": ({ number, url }) =>
     `Pull request #${number} (${url}) has review feedback I haven't addressed. Read every unresolved thread and the review comments (\`gh pr view ${number} --comments\`, and the review threads through \`gh api graphql\`). Work in a git worktree on the PR's branch so my current checkout is untouched. For each thread, tell me what you'd change and why; change code only once I agree.`,
   "fix-checks": ({ number, url }) =>

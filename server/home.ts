@@ -4,9 +4,9 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
-import { arrange, MOVES, Quadrant, toItems, withTouches, type Item, type PrFacts, type Touch } from "../domain/inbox.ts";
+import { arrange, moveFor, MOVES, Quadrant, toItems, withTouches, type Item, type Move, type PrFacts, type Touch } from "../domain/inbox.ts";
 import { prKey } from "../domain/agent.ts";
-import type { HomeView, PrSession } from "../domain/home.ts";
+import { lastRound, type HomeView, type PrSession } from "../domain/home.ts";
 import { nextMove } from "../domain/next-move.ts";
 import { accounts } from "./gh.ts";
 import { fetchAvatar, fetchDetail, fetchPrs, fetchTouches } from "./github.ts";
@@ -96,9 +96,17 @@ export function homeRoutes(deps: { home: HomeStore; repos: RepoRegistry; agents:
     return chosen && list.includes(chosen) ? chosen : (list[0] ?? null);
   };
 
+  /** Rounds the agent was already started on, so pressing Re-review twice doesn't repeat the task. */
+  const prompted = new Set<string>();
+
   const items = (account: string): Item[] => toItems(cache.get(account)?.prs ?? []);
 
-  function sessions(): Record<string, PrSession> {
+  /** Each PR's own next move, by `prKey`, for the account you're looking through. */
+  const movesOf = (account: string | null): Map<string, Move> =>
+    new Map((account ? (cache.get(account)?.prs ?? []) : []).map((pr) => [prKey(pr.repo, pr.number), moveFor(pr)]));
+
+  function sessions(account: string | null): Record<string, PrSession> {
+    const moves = movesOf(account);
     const out: Record<string, PrSession> = {};
     const at = (key: string) => (out[key] ??= { agent: null, review: null });
     for (const v of agents.views()) {
@@ -115,7 +123,10 @@ export function homeRoutes(deps: { home: HomeStore; repos: RepoRegistry; agents:
         seen.add(review.pr);
         const state = repo.store.state(review.id);
         if (!state) continue;
-        at(prKey(repo.nameWithOwner, review.pr)).review = { path: `/r/${repo.id}?review=${review.id}`, title: review.title, move: nextMove(state, new Set(state.visited)) };
+        const key = prKey(repo.nameWithOwner, review.pr);
+        const move = moves.get(key);
+        if (move && lastRound(state.review.published, move)) continue;
+        at(key).review = { path: `/r/${repo.id}?review=${review.id}`, title: review.title, move: nextMove(state, new Set(state.visited)) };
       }
     }
     return out;
@@ -132,7 +143,7 @@ export function homeRoutes(deps: { home: HomeStore; repos: RepoRegistry; agents:
       fetchedAt: snap?.at ?? null,
       refreshing: account ? cache.refreshing(account) : false,
       error: account ? cache.error(account) : "gh isn't logged in to any GitHub account. Run `gh auth login`.",
-      sessions: sessions(),
+      sessions: sessions(account),
     };
   }
 
@@ -155,22 +166,30 @@ export function homeRoutes(deps: { home: HomeStore; repos: RepoRegistry; agents:
     const opens = MOVES[item.move.kind].opens;
     if (ask === "move" && opens === "github") return { url: pr.url };
     const agentKey = prKey(pr.repo, pr.number);
-    const existing = sessions()[agentKey];
+    const existing = sessions(account)[agentKey];
     const where = existing?.review ? { path: existing.review.path } : { path: `/s/${encodeURIComponent(agentKey)}` };
-    if (agents.live(agentKey)) return where;
+    // A new round: the agent from the last one is told what came back, once per hand-back.
+    const round = ask === "move" && item.move.kind === "rereview" && !existing?.review ? `${agentKey}@${item.move.because.at}` : null;
+    if (agents.live(agentKey)) {
+      const prompt = round && !prompted.has(round) ? promptFor(item, false) : null;
+      if (prompt) agents.send(agentKey, prompt);
+      if (round) prompted.add(round);
+      return where;
+    }
     const root = repos.find(pr.repo) ?? (await repos.clone(pr.repo, account));
     const repo = repos.register(root);
     if (ask === "move" && !promptFor(item, false)) return { url: pr.url };
+    if (round) prompted.add(round);
     const previous = home.launch(pr.repo, pr.number);
     home.putLaunch({ account, repo: pr.repo, pr: pr.number, root, sessionId: null });
     const resumeId = previous?.root === root ? previous.sessionId : null;
-    if (resumeId) {
+    if (resumeId && !round) {
       agents.start({ key: agentKey, repo: pr.repo, pr: pr.number, root, account, prompt: "I'm back. Pick up where we left off; run `downstream wait` if you're mid-review.", resumeId });
       return where;
     }
     const opened = ask === "move" && opens === "review" ? await openFirst(repo, pr.number) : null;
     const prompt = ask === "stale" ? stalePrompt(item) : promptFor(item, opened !== null)!;
-    agents.start({ key: agentKey, repo: pr.repo, pr: pr.number, root, account, prompt, resumeId: null });
+    agents.start({ key: agentKey, repo: pr.repo, pr: pr.number, root, account, prompt, resumeId });
     return opened ?? where;
   }
 

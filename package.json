@@ -23,7 +23,7 @@
     "dev:web": "vite --config web/vite.config.ts",
     "build": "vite build --config web/vite.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p web/tsconfig.json --noEmit",
-    "test": "node --no-warnings=ExperimentalWarning --test server/analyze/graph.test.ts server/store.test.ts domain/delivery.test.ts domain/inbox.test.ts domain/next-move.test.ts domain/approval.test.ts domain/pr-detail.test.ts server/publish.test.ts server/stale.test.ts server/home-store.test.ts",
+    "test": "node --no-warnings=ExperimentalWarning --test server/analyze/graph.test.ts server/store.test.ts domain/delivery.test.ts domain/inbox.test.ts domain/next-move.test.ts domain/approval.test.ts domain/pr-detail.test.ts domain/home.test.ts server/publish.test.ts server/stale.test.ts server/home-store.test.ts",
     "build:cli": "rm -rf dist && tsc -p tsconfig.build.json",
     "prepack": "npm run build && npm run build:cli"
   },

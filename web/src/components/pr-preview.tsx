@@ -17,7 +17,8 @@ const BODY_FOLDED_CHARS = 900;
 
 /** What pressing the button does, in words: the agent only starts when you say so. */
 function startLabel(item: Triaged, session: PrSession | null): string {
-  if (session?.review || session?.agent) return "Resume";
+  // Without a review, the agent left is from the last round; pressing starts the new one.
+  if (session?.review || (session?.agent && item.move.kind !== "rereview")) return "Resume";
   const opens = MOVES[item.move.kind].opens;
   if (opens === "github") return `${verbOf(item)} on GitHub`;
   if (opens === "review") return item.move.kind === "rereview" ? "Start re-review" : "Start review";
