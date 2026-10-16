@@ -1,7 +1,7 @@
 // The trail: frames stacked in call order, from a door down to where you are.
 // Earlier frames fold to the line that called the next one, like a call stack
 // you can read.
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { ArrowDown, ArrowLeft, ArrowRight } from "lucide-react";
 import { useReview } from "../lib/review.tsx";
 import { displayName } from "../lib/graph.ts";
@@ -15,11 +15,22 @@ export function Trail() {
   const hover = useHover();
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   useEffect(() => setExpanded({}), [trail.join("|")]);
+  // The pinned bar's height, so a step scrolls its lines to just below it rather than under it.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const pinnedRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const pinned = pinnedRef.current;
+    if (!pinned) return;
+    const observer = new ResizeObserver(() => rootRef.current?.style.setProperty("--trail-pinned", `${pinned.offsetHeight}px`));
+    observer.observe(pinned);
+    return () => observer.disconnect();
+  });
 
   if (!index || !state) return null;
   const symbols = trail.map((id) => index.byId.get(id)).filter((s): s is NonNullable<typeof s> => !!s);
   const step = state.steps.find((s) => s.id === stepId) ?? null;
   const stepIdx = step ? state.steps.indexOf(step) : -1;
+  const stepSymbol = step?.symbolId ? index.byId.get(step.symbolId) : undefined;
 
   if (!symbols.length) {
     return (
@@ -44,8 +55,9 @@ export function Trail() {
   }
 
   return (
-    <div className="mx-auto max-w-[68rem] px-5 pb-40 pt-3 md:px-8">
-      <nav aria-label="Trail" className="sticky top-0 z-10 -mx-2 mb-3 flex flex-wrap items-center gap-1 bg-page/90 px-2 py-2 backdrop-blur">
+    <div ref={rootRef} className="mx-auto max-w-[68rem] px-5 pb-40 pt-3 md:px-8">
+      <div ref={pinnedRef} className="sticky top-0 z-10 -mx-2 mb-3 bg-page/90 px-2 pb-2 backdrop-blur">
+      <nav aria-label="Trail" className="flex flex-wrap items-center gap-1 py-2">
         {symbols.map((s, i) => (
           <Fragment key={s.id}>
             {i > 0 && <ArrowRight size={12} className="text-ink-4" />}
@@ -64,7 +76,7 @@ export function Trail() {
       </nav>
 
       {step && (
-        <section className="fade-in mb-5 rounded-lg border border-agent-line/40 bg-agent-wash px-4 py-3" aria-label={`Step ${step.order}`}>
+        <section className="fade-in rounded-lg border border-agent-line/40 bg-agent-wash px-4 py-3" aria-label={`Step ${step.order}`}>
           <div className="flex items-center gap-3">
             <span className="font-mono text-2xs text-agent-ink">
               step {step.order} of {state.steps.length}
@@ -74,14 +86,24 @@ export function Trail() {
               <button type="button" disabled={stepIdx <= 0} onClick={() => openStep(state.steps[stepIdx - 1]!.id)} className="press rounded-md p-1.5 text-ink-2 hover:bg-overlay disabled:opacity-30" title="Previous step (k)">
                 <ArrowLeft size={14} />
               </button>
-              <button type="button" disabled={stepIdx >= state.steps.length - 1} onClick={() => openStep(state.steps[stepIdx + 1]!.id)} className="press rounded-md p-1.5 text-ink-2 hover:bg-overlay disabled:opacity-30" title="Next step (j)">
-                <ArrowRight size={14} />
-              </button>
+              {stepIdx < state.steps.length - 1 ? (
+                <button type="button" onClick={() => openStep(state.steps[stepIdx + 1]!.id)} className="press flex items-center gap-1 whitespace-nowrap rounded-md bg-ink px-2.5 py-1 text-[12.5px] font-medium text-page hover:bg-white" title="Next step (j)">
+                  Next step <ArrowRight size={13} />
+                </button>
+              ) : (
+                <span className="px-2 font-mono text-2xs text-ink-3">last step</span>
+              )}
             </div>
           </div>
-          {step.body && <Markdown text={step.body} className="prose-ds mt-1.5 max-w-[75ch] text-[13.5px]" />}
+          {stepSymbol && step.lines && (
+            <button type="button" onClick={() => openStep(step.id)} className="press mt-1 font-mono text-2xs text-agent-ink hover:underline" title="Scroll back to the lines this step is about">
+              {displayName(stepSymbol)} · lines {step.lines.start}–{step.lines.end}
+            </button>
+          )}
+          {step.body && <Markdown text={step.body} className="prose-ds mt-1.5 max-h-[30vh] max-w-[75ch] overflow-y-auto overscroll-contain text-[13.5px]" />}
         </section>
       )}
+      </div>
 
       <div className="space-y-0">
         {symbols.map((s, i) => {

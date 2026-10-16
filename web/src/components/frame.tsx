@@ -18,6 +18,9 @@ const IDENT = /^[A-Za-z_$][\w$]*$/;
 const SHADOW_CSS = `
   [data-ds-link] { text-decoration: underline dotted color-mix(in srgb, currentColor 45%, transparent); text-underline-offset: 3px; cursor: pointer; }
   [data-ds-link]:hover { text-decoration-style: solid; }
+  [data-ds-focus] { scroll-margin-top: calc(var(--trail-pinned, 0px) + 64px); animation: ds-focus 1.8s ease-out; }
+  @keyframes ds-focus { 0%, 35% { background-color: rgb(242 166 59 / 0.32); } 100% { background-color: transparent; } }
+  @media (prefers-reduced-motion: reduce) { [data-ds-focus] { animation: none; } }
   [data-ds-next] { text-decoration: underline solid #f2a63b !important; text-decoration-thickness: 1.5px !important; }
 `;
 
@@ -104,8 +107,40 @@ export function FrameView({ symbol, next, compact, onToggleCompact, onClose, fir
     return null;
   }, [selection, focus, symbol.id, notes, noteId, nextEdge]);
 
+  // A focus with lines lands on those lines, not the frame top, and flashes them.
+  // The code may not be rendered yet, so the last render picks up a pending focus.
+  const codeRef = useRef<HTMLElement | null>(null);
+  const pendingFocus = useRef<number | null>(null);
+  // Pierre can keep the options from an earlier render, so its callbacks read focus through a ref.
+  const focusRef = useRef(focus);
+  focusRef.current = focus;
+  const landOnLines = (): boolean => {
+    const current = focusRef.current;
+    const lines = current?.symbolId === symbol.id ? current.lines : null;
+    const root = codeRef.current?.shadowRoot ?? codeRef.current;
+    if (!lines || !root) return false;
+    const rows: Element[] = [];
+    for (let line = lines.start; line <= lines.end; line++) {
+      root.querySelectorAll(`[data-line="${line}"]`).forEach((row) => {
+        if (!(row.getAttribute("data-line-type") ?? "").includes("deletion")) rows.push(row);
+      });
+    }
+    if (!rows.length) return false;
+    root.querySelectorAll("[data-ds-focus]").forEach((row) => row.removeAttribute("data-ds-focus"));
+    // Next frame, so a repeat focus on the same lines restarts the flash.
+    requestAnimationFrame(() => {
+      rows.forEach((row) => row.setAttribute("data-ds-focus", ""));
+      rows[0]!.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return true;
+  };
+
   useEffect(() => {
-    if (focus?.symbolId === symbol.id) rootRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (focus?.symbolId !== symbol.id) return;
+    pendingFocus.current = null;
+    if (landOnLines()) return;
+    if (focus.lines) pendingFocus.current = focus.nonce;
+    rootRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [focus, symbol.id]);
 
   // Mark tokens that lead to another symbol, once Pierre has rendered.
@@ -135,7 +170,7 @@ export function FrameView({ symbol, next, compact, onToggleCompact, onClose, fir
   };
 
   return (
-    <article ref={rootRef} className="scroll-mt-16 rounded-lg border border-line-subtle bg-pane" aria-label={displayName(symbol)}>
+    <article ref={rootRef} className="scroll-mt-[calc(var(--trail-pinned,0px)+12px)] rounded-lg border border-line-subtle bg-pane" aria-label={displayName(symbol)}>
       <header className="flex items-start gap-3 px-4 pb-2 pt-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -235,7 +270,11 @@ export function FrameView({ symbol, next, compact, onToggleCompact, onClose, fir
                   side: r.side === "deletions" ? "old" : "new",
                 });
               },
-              onPostRender: (node) => decorate(node),
+              onPostRender: (node) => {
+                codeRef.current = node;
+                decorate(node);
+                if (pendingFocus.current !== null && pendingFocus.current === focusRef.current?.nonce && landOnLines()) pendingFocus.current = null;
+              },
               onTokenEnter: (props) => {
                 const t = tokenTarget(props);
                 if (!IDENT.test(t.text)) return;
