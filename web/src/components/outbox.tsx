@@ -109,7 +109,7 @@ export function PostCard({ post, compact = false }: { post: Post; compact?: bool
               className="block w-full resize-y rounded-md border border-line bg-page px-2.5 py-2 text-[12.5px] leading-5 text-ink focus:border-ink-4 focus:outline-none"
             />
           ) : (
-            <div className="max-h-64 overflow-y-auto">
+            <div className="relative max-h-64 overflow-y-auto">
               <Markdown text={post.body} className="prose-ds text-[12.5px]" />
             </div>
           )}
@@ -236,7 +236,7 @@ export function AuthorCard({ note, onError }: { note: Note; onError: (e: string 
         </div>
       ) : (
         <>
-          <div className="max-h-72 overflow-y-auto px-2.5 py-2">
+          <div className="relative max-h-72 overflow-y-auto px-2.5 py-2">
             <Markdown text={text} className="prose-ds text-[12.5px]" />
           </div>
           {!sent && (

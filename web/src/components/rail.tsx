@@ -14,7 +14,7 @@ export function Rail() {
   const current = trail.at(-1);
 
   return (
-    <nav className="flex h-full min-h-0 flex-col overflow-y-auto overscroll-contain" aria-label="Ways in">
+    <nav className="relative flex h-full min-h-0 flex-col overflow-y-auto overscroll-contain" aria-label="Ways in">
       <section className="px-3 pb-2 pt-3">
         <h2 className="eyebrow px-2 pb-1.5">Doors</h2>
         {index.entries.length === 0 ? (

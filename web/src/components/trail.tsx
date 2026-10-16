@@ -100,7 +100,7 @@ export function Trail() {
               {displayName(stepSymbol)} · lines {step.lines.start}–{step.lines.end}
             </button>
           )}
-          {step.body && <Markdown text={step.body} className="prose-ds mt-1.5 max-h-[30vh] max-w-[75ch] overflow-y-auto overscroll-contain text-[13.5px]" />}
+          {step.body && <Markdown text={step.body} className="prose-ds relative mt-1.5 max-h-[30vh] max-w-[75ch] overflow-y-auto overscroll-contain text-[13.5px]" />}
         </section>
       )}
       </div>

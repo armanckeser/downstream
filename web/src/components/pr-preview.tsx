@@ -65,7 +65,7 @@ export function PrPreview({ item, session, starting, onStart, onChoose, onClose 
         </Tip>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
+      <div className="relative min-h-0 flex-1 overflow-y-auto px-5 pb-6">
         <h2 className="text-[19px] font-semibold leading-snug tracking-[-0.01em] text-ink">{pr.title}</h2>
         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-ink-3">
           <Avatar src={pr.authorAvatar} name={pr.authorName ?? pr.author} size={16} />

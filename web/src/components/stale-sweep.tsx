@@ -181,7 +181,7 @@ export function StaleSweep({ items, onClose }: { items: Item[]; onClose: () => v
             </button>
           </div>
         ) : (
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
+          <div className="relative min-h-0 flex-1 overflow-y-auto px-5 pb-6">
             <h2 className="text-[19px] font-semibold leading-snug tracking-[-0.01em] text-ink">{item.lead.title}</h2>
             <div className="mt-2 flex items-center gap-2 text-[12.5px] text-ink-3">
               <Avatar src={item.lead.authorAvatar} name={item.lead.authorName ?? item.lead.author} size={16} />

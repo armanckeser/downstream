@@ -92,7 +92,7 @@ export function SendReview({ onClose }: { onClose: () => void }) {
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
+        <div className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4">
           {review?.published && (
             <a href={review.published.url} target="_blank" rel="noreferrer" className="mb-4 flex items-center gap-2 rounded-md border border-line px-3 py-2.5 text-[13px] text-ink hover:bg-overlay">
               <Check size={14} /> Sent as {review.published.event.toLowerCase().replace("_", " ")} with {review.published.comments} inline comments
@@ -149,7 +149,7 @@ export function SendReview({ onClose }: { onClose: () => void }) {
                     <X size={12} />
                   </button>
                 </div>
-                <div className="max-h-48 overflow-y-auto px-2.5 py-2">
+                <div className="relative max-h-48 overflow-y-auto px-2.5 py-2">
                   <Markdown text={c.body} className="prose-ds text-[12.5px]" />
                 </div>
               </li>

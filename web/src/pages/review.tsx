@@ -144,7 +144,7 @@ export function Review() {
         <div className={`min-h-0 border-line-subtle lg:border-r ${railOpen ? "lg:block" : "lg:hidden"} ${pane === "rail" ? "block" : "hidden"}`}>
           <Rail />
         </div>
-        <main className={`min-h-0 min-w-0 overflow-x-clip lg:block lg:overflow-x-hidden lg:overflow-y-auto ${pane === "main" ? "block" : "hidden"} ${view === "map" ? "h-[calc(100dvh-90px)] overflow-hidden lg:h-auto" : ""}`}>
+        <main className={`relative min-h-0 min-w-0 overflow-x-clip lg:block lg:overflow-x-hidden lg:overflow-y-auto ${pane === "main" ? "block" : "hidden"} ${view === "map" ? "h-[calc(100dvh-90px)] overflow-hidden lg:h-auto" : ""}`}>
           <div className="mb-1 flex gap-1 px-4 pt-3 md:hidden">
             {VIEWS.map(([v, label]) => (
               <button key={v} type="button" onClick={() => setView(v)} className={`press rounded-md px-2.5 py-1 text-[12.5px] pointer-coarse:min-h-11 ${view === v ? "bg-overlay text-ink" : "text-ink-3"}`}>
