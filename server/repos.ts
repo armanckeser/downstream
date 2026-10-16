@@ -8,10 +8,10 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { Store } from "./store.ts";
 import { Workspace } from "./workspace.ts";
-import { ActionError } from "./actions.ts";
+import { ActionError, type ActionContext } from "./actions.ts";
 import { downstreamHome, type HomeStore } from "./home-store.ts";
 import { ghAsync } from "./gh.ts";
-import type { ReviewEvent } from "../domain/model.ts";
+import type { Author, ReviewEvent } from "../domain/model.ts";
 
 export class RepoContext {
   readonly store: Store;
@@ -90,6 +90,20 @@ export class RepoRegistry {
     this.loaded.set(id, ctx);
     ctx.store.bus.on("event", (reviewId: string, e: ReviewEvent) => this.bus.emit("event", ctx, reviewId, e));
     return ctx;
+  }
+
+  /** What an action runs with, whoever calls it: the browser, the agent's CLI, or the home page starting a review. */
+  actionContext(repo: RepoContext, actor: Author, reviewId: string): ActionContext & { reviewId: string } {
+    return {
+      store: repo.store,
+      actor,
+      root: repo.root,
+      nameWithOwner: repo.nameWithOwner,
+      accountFor: (pr) => this.home.accountFor(repo.root, pr),
+      workspace: (id) => repo.workspace(id),
+      dropWorkspace: (id) => repo.dropWorkspace(id),
+      reviewId,
+    };
   }
 
   get(id: string): RepoContext | null {

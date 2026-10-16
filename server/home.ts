@@ -17,7 +17,7 @@ import type { ReviewEvent } from "../domain/model.ts";
 import type { AgentHost } from "./agent-host.ts";
 import { promptFor, stalePrompt } from "./prompts.ts";
 import { decide, GitHubRefused, NotOffered, StaleDecision } from "./stale.ts";
-import { ActionError } from "./actions.ts";
+import { ActionError, openReview } from "./actions.ts";
 
 const STALE_AFTER_MS = 60_000;
 
@@ -159,14 +159,34 @@ export function homeRoutes(deps: { home: HomeStore; repos: RepoRegistry; agents:
     const where = existing?.review ? { path: existing.review.path } : { path: `/s/${encodeURIComponent(agentKey)}` };
     if (agents.live(agentKey)) return where;
     const root = repos.find(pr.repo) ?? (await repos.clone(pr.repo, account));
-    repos.register(root);
-    const prompt = ask === "stale" ? stalePrompt(item) : promptFor(item);
-    if (!prompt) return { url: pr.url };
+    const repo = repos.register(root);
+    if (ask === "move" && !promptFor(item, false)) return { url: pr.url };
     const previous = home.launch(pr.repo, pr.number);
     home.putLaunch({ account, repo: pr.repo, pr: pr.number, root, sessionId: null });
     const resumeId = previous?.root === root ? previous.sessionId : null;
-    agents.start({ key: agentKey, repo: pr.repo, pr: pr.number, root, account, prompt: resumeId ? "I'm back. Pick up where we left off; run `downstream wait` if you're mid-review." : prompt, resumeId });
-    return where;
+    if (resumeId) {
+      agents.start({ key: agentKey, repo: pr.repo, pr: pr.number, root, account, prompt: "I'm back. Pick up where we left off; run `downstream wait` if you're mid-review.", resumeId });
+      return where;
+    }
+    const opened = ask === "move" && opens === "review" ? await openFirst(repo, pr.number) : null;
+    const prompt = ask === "stale" ? stalePrompt(item) : promptFor(item, opened !== null)!;
+    agents.start({ key: agentKey, repo: pr.repo, pr: pr.number, root, account, prompt, resumeId: null });
+    return opened ?? where;
+  }
+
+  /**
+   * The mechanical part of a review needs no agent: fetch, diff and the call
+   * graph. Doing it here puts the change's shape on screen while the agent is
+   * still starting. If it fails, the agent opens the review itself and says why.
+   */
+  async function openFirst(repo: RepoContext, pr: number): Promise<{ path: string } | null> {
+    try {
+      const { review } = await openReview.run(repos.actionContext(repo, "user", ""), openReview.input.parse({ pr }));
+      return { path: `/r/${repo.id}?review=${review.id}` };
+    } catch (e) {
+      console.error(`Opening #${pr} before the agent failed; the agent will open it: ${(e as Error).message}`);
+      return null;
+    }
   }
 
   // The session id appears a moment after start; keep it so a later visit can resume.

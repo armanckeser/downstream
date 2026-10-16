@@ -8,7 +8,7 @@ import { writeFileSync, rmSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 import type { Author, ReviewEvent } from "../domain/model.ts";
-import { actions, ActionError, type ActionContext } from "./actions.ts";
+import { actions, ActionError } from "./actions.ts";
 import { HomeStore, downstreamHome } from "./home-store.ts";
 import { RepoRegistry, type RepoContext } from "./repos.ts";
 import { AgentHost } from "./agent-host.ts";
@@ -91,17 +91,7 @@ review.post("/actions/:name", async (c) => {
   const reviewId = def.name === "review.open" ? "" : reviewOf(c, body.review);
   if (def.name !== "review.open" && !reviewId) throw new ActionError("No review yet. Run `downstream open` first.", 404);
   if (actor === "agent") repo.store.touchAgent();
-  const ctx: ActionContext & { reviewId: string } = {
-    store: repo.store,
-    actor,
-    root: repo.root,
-    nameWithOwner: repo.nameWithOwner,
-    accountFor: (pr) => home.accountFor(repo.root, pr),
-    workspace: (id) => repo.workspace(id),
-    dropWorkspace: (id) => repo.dropWorkspace(id),
-    reviewId: reviewId ?? "",
-  };
-  const result = await def.run(ctx, def.input.parse(body.input ?? {}));
+  const result = await def.run(repos.actionContext(repo, actor, reviewId ?? ""), def.input.parse(body.input ?? {}));
   return c.json(result ?? { ok: true });
 });
 

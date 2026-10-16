@@ -141,6 +141,7 @@ The user can start you from Downstream's home page (`downstream home`) by pressi
 - Reading never asks: file tools, searches, and read-only shell (`git log/show/diff`, `gh pr view`, `rg`, loops over those) run straight away. Anything that writes asks, and so does an expanded argument (`$f`, `$(…)`) to `git`, `gh` or the CLI, so prefer literal arguments. `downstream send` always asks.
 - For work other than a review (failing checks, feedback to address, conflicts), make changes in a git worktree and say what you'll change before you change it.
 - The user can move the session to their terminal (`claude --resume`); nothing changes for you.
+- For a review, Downstream usually opens the pull request before starting you, so the user sees its files and map at once. Your first message says so; then skip `open` and start at `downstream show`.
 
 ## Housekeeping
 
