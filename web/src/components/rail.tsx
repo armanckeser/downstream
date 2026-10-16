@@ -74,11 +74,8 @@ export function Rail() {
 
 function Files({ current }: { current: string | null }) {
   const { state, index, openSymbol } = useReview();
-  const files = useMemo(() => {
-    const set = new Set<string>(state?.files.map((f) => f.path) ?? []);
-    for (const s of state?.symbols ?? []) set.add(s.file);
-    return [...set].sort();
-  }, [state]);
+  // Only the change's own files: the graph's symbols also live in the callers and callees it reached outside the change.
+  const files = useMemo(() => (state?.files ?? []).map((f) => f.path).sort(), [state]);
   const gitStatus = useMemo<GitStatusEntry[]>(
     () =>
       (state?.files ?? [])
