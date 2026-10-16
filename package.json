@@ -1,6 +1,6 @@
 {
   "name": "@armanckeser/downstream",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "license": "MIT",
   "description": "Read a change downstream from its entry points, with the agent in the margin.",
   "repository": {

@@ -1,41 +1,58 @@
 # Downstream
 
-Code review that reads a change the way it runs.
+Review code with your agent, in the order it runs.
 
-Ask your coding agent to review a pull request, or to explain part of the codebase, and Downstream opens next to it: the change laid out from its entry points, each call one click deeper, the agent's reasons pinned to the lines they're about, and a margin where you talk it through with the agent while it listens. When you agree, the review you arrived at goes to the pull request: your verdict, your words, inline comments the author can apply in one click.
+Pull requests pile up across repositories, a diff lists files alphabetically, and whatever your agent figured out about a change scrolls away with the chat. Downstream gives you one page of what needs you, opens each change at the place it starts, and keeps your agent next to the code while you read. You agree on a review together, and the review goes to the pull request in your words.
 
-![A review in Downstream: the agent's walkthrough lands live, a type hover, following a call, a question answered in the margin, the flow map](docs/demo.gif)
+![Downstream: the pull requests that need you, then one review from the agent's first read to the review landing on the pull request](docs/launch.gif)
 
-## Home: what needs you
+```bash
+npx @armanckeser/downstream
+```
 
-`downstream home` opens a page with every pull request that needs you, for one GitHub account at a time, each with one next action: *Merge*, *Review*, *Re-review*, *Address 3 threads*, *Fix checks*, *Resolve conflicts*. One is **Now**. Pins come next in your order, then the rest ranked by what unblocks most. Pull requests waiting on someone else fold away.
+You need Node 22.18 or newer, git, and the GitHub CLI signed in (`gh auth login`). The agent is Claude Code, running with your own settings.
 
-- **Accounts.** Every account `gh auth status` knows, one at a time (`1`, `2`). Inboxes never merge.
-- **Stacks.** A stack (`gh stack`) shows up as one row. Only the bottom layer can merge, so the row's action is the lowest layer that can move.
-- **Press a pull request** and Claude Code starts on it inside Downstream (through the Agent SDK, with your Claude Code settings). A review opens as soon as the agent writes it; other moves happen in a session page where you talk to the agent. Reading runs without asking; anything that writes asks you in the browser, and sending the review is always yours. **Move to terminal** stops it here and copies `claude --resume <id>`.
+## Know what needs you
 
-Keys: `j`/`k` move, `↵` start, `n` Now, `p` pin, `r` refresh. In a review, one button is always the next thing to do (answer the agent, the next walkthrough step, send), and `↵` presses it.
+![Home: every pull request waiting on you, sorted into Do, Next and Delegate, with one previewed](docs/home.png)
+
+Every open pull request that needs you sits on one page, sorted by how much it matters right now. **Do** holds what's blocking someone you work with, feedback on your own pull requests, and anything ready to merge. **Next** holds your own work that can wait. **Delegate** holds review requests from people outside what you're working on right now. Pull requests waiting on someone else fold away, and a pull request comes back to **Do** the moment its author pushes or replies after your review.
+
+Each row says the one thing to do: *Review*, *Re-review*, *Merge*, *Address 3 threads*, *Fix checks*, *Resolve conflicts*. Press it and Claude Code starts on that pull request inside Downstream. It reads without asking, asks you in the browser before anything reaches other people, and leaves sending to you. **Move to terminal** hands the session to `claude --resume`.
+
+Keys: `j`/`k` move, `↵` preview and start, `d` `n` `g` `s` move a row to Do, Next, Delegate or Someday, `u` undo, `o` open on GitHub, `r` refresh. With more than one GitHub account signed in to `gh`, you look through one at a time and the inboxes never mix.
+
+## Read it the way it runs
+
+![The overview: the agent's summary, what needs you, and where the change starts](docs/overview.png)
+
+The agent reads the change first and leaves you a summary, the findings that need you, and the entry points: the route, the command, or the component where control comes in. Nothing else in the change calls an entry point, so that's where you start.
+
+![The trail: each call opens below the one that made it, with the must-fix finding pinned to its line and a live type hover](docs/trail.png)
+
+Start the walkthrough and each step opens the code that runs next, numbered like the real file, below the call that led to it. Findings sit on the lines they're about, with the concrete case that breaks and the smallest fix. Hover anything for its real TypeScript type and docs. `↵` always presses the next thing to do: the next step, an answer the agent is waiting on, or Send.
+
+## Ask without losing your place
+
+![A question in the margin and the agent's answer, next to the code it's about](docs/conversation.png)
+
+Select lines, or just ask about what's on screen. The agent already knows what you're looking at, answers in the margin, and can move your view to what it means. You keep reading while it works.
+
+## See the whole change
+
+![The flow map: the change laid out from its entry points, with findings counted on each piece](docs/map.png)
+
+The map lays the change out left to right from its entry points: what's new, what changed, which calls are new, and which existing code reaches in. Hover a piece for its callers, its calls and its open findings.
+
+## Send what you agreed on
+
+![Send review: the verdict, the words for the author, and each inline comment as GitHub will get it](docs/send.png)
+
+Send review shows exactly what the author will get: your verdict, a short note, and each finding as an inline comment, with a suggestion they can apply in one click when the fix is concrete. Each thread decides whether it reaches the author and in what words. Your conversation with the agent stays private, and nothing is posted until you confirm.
 
 ## Why
 
-A diff is a list of files, top to bottom, alphabetically. Nobody understands code that way. You find where control comes in, follow what it calls, and stop wherever something looks odd to ask why it's like that. The diff never tells you the entry point, never shows who calls the function you're reading, and never says why the author chose this interface over the obvious other one. That lives in the author's head, or now in the agent's context, and it's gone when the PR merges.
-
-Downstream gives the change that shape:
-
-- **Doors.** The entry points into the change: the route, the command, the component a page renders. Nothing else in the change calls them, so you start there.
-- **Trail.** Open a door and its code appears scoped to just that symbol, numbered like the real file. Click a call and the callee opens below it; the frame above folds to the one line that made the call. You read down the stack the way the code runs.
-- **Margin.** The agent writes `why` notes where a careful reader would stop, `decision` notes with the alternatives that lost, and findings with a severity and a failure scenario. You select lines and ask. It answers in the margin while you keep reading.
-- **Map.** The whole change as a system, left to right from its doors: what's new, what's changed, which calls are new, and which existing code reaches in.
-- **Send.** Findings are numbered (*fix 2 and 5*) and carry the problem, the smallest fix and what happens if you ship anyway. Each thread decides whether it reaches the author and in what words; the conversation stays private. Send review shows the exact review GitHub will get and posts it only when you confirm.
-
-Hover anything in the code for its real TypeScript type and docs. Hover a symbol on the map or in a note for its purpose, callers, calls and open findings.
-
-| | |
-|---|---|
-| ![The overview: the agent's summary, the doors into the change, findings and choices](docs/overview.png) | ![The trail: a step of the walkthrough, a symbol's code with pinned findings and a live type hover](docs/trail.png) |
-| ![A question in the margin, answered by the agent](docs/conversation.png) | ![The flow map, laid out from the change's entry points](docs/map.png) |
-
-![Send review: the verdict, the words for the author, and each inline comment exactly as GitHub will get it](docs/send.png)
+A diff is a list of files, top to bottom, alphabetically. Nobody understands code that way. You find where control comes in, follow what it calls, and stop wherever something looks odd to ask why it's like that. The diff never tells you the entry point, never shows who calls the function you're reading, and never says why the author chose this interface over the obvious other one. That lives in the author's head, or now in the agent's context, and it's gone when the pull request merges. Downstream keeps it next to the code while you decide.
 
 ## How it works with an agent
 
@@ -69,32 +86,17 @@ Downstream follows the [agent-first-apps](https://github.com/armanckeser/agent-f
 
 Postgres and Electric would be the agent-first default. A review is short-lived, local and per repository, though, so an embedded database and SSE keep the same guarantees with nothing to start.
 
-## Install
+## Install as a Claude Code skill
 
-Run the home page straight from npm, from any directory:
-
-```bash
-npx @armanckeser/downstream home
-```
-
-To let Claude Code drive reviews, install it as a skill instead:
+`npx` gives you the home page and the agent sessions it starts. To also start reviews from Claude Code itself (*"help me review this branch"*, *"review PR 42 with me"*, *"teach me how the sync engine works"*), install Downstream as a skill:
 
 ```bash
 git clone https://github.com/armanckeser/downstream ~/.claude/skills/downstream
 cd ~/.claude/skills/downstream && npm install && npm run build
+node ~/.claude/skills/downstream/bin/downstream.mjs    # the home page, from any directory
 ```
 
-Then start the home page from any directory; it doesn't need to be inside a repository:
-
-```bash
-node ~/.claude/skills/downstream/bin/downstream.mjs home
-```
-
-One server runs per machine (`~/.downstream/`). Press a pull request and Downstream finds your clone of that repository under `~/projects`, `~/code`, `~/src`, `~/dev` or `~` (set `DOWNSTREAM_REPO_ROOTS` to search elsewhere), and makes a partial clone in `~/.downstream/repos/` when you don't have one.
-
-Or ask Claude Code to review something: *"help me review this branch"*, *"review PR 42 with me"*, *"teach me how the sync engine works"*. The first `open` in a repository takes a few seconds while TypeScript loads the project; after that the hovers are instant.
-
-Requires Node 22.18 or newer and git. `--pr` uses the GitHub CLI.
+One server runs per machine (`~/.downstream/`). Press a pull request and Downstream finds your clone of that repository under `~/projects`, `~/code`, `~/src`, `~/dev` or `~` (set `DOWNSTREAM_REPO_ROOTS` to search elsewhere), and makes a partial clone in `~/.downstream/repos/` when you don't have one. The first `open` in a repository takes a few seconds while TypeScript loads the project; after that the hovers are instant.
 
 **Languages.** TypeScript and JavaScript go through the compiler: symbols, call resolution, callers, real types on hover. Python is read from indentation and imports: functions, classes and methods with decorators and docstrings, FastAPI/Flask routes as doors, calls through imports and `self`, callers across the repo, signatures and docstrings on hover. Tests in either are marked as tests. Other languages arrive as one symbol per changed file; the agent splits them into real functions and draws the edges (`addSymbols`, `edges` in `apply`).
 
@@ -107,6 +109,8 @@ npm test               # analyzer tests against throwaway git repos
 npm run typecheck
 DOWNSTREAM_API=http://127.0.0.1:4317 npm run dev:web   # UI with hot reload against a running review
 npm pack               # what npm would publish: the UI and dist/ (the CLI and server compiled to JS)
+node scripts/film/stills.mjs                         # the README stills
+FILM_MJS=<film.mjs> node scripts/film/shoot.mjs      # the launch GIF (needs a frame-stepped renderer)
 ```
 
 A clone runs the TypeScript sources with Node's type stripping. A published copy lives under `node_modules`, where Node won't strip types, so `npm pack` and `npm publish` compile `cli/`, `server/` and `domain/` into `dist/` first (`server/install.ts` picks which one runs).
@@ -120,14 +124,15 @@ A clone runs the TypeScript sources with Node's type stripping. A published copy
 | `server/publish.ts` | The review as the PR author sees it, and sending it |
 | `server/analyze/py.ts` | Python declarations, imports and calls |
 | `server/main.ts` | HTTP, SSE, `wait`; one server for every repository (`/r/<repo>/api`) |
-| `domain/inbox.ts` | The next action for each pull request, stacks, Now and pins |
+| `domain/inbox.ts` | The next action for each pull request, stacks, and the Do / Next / Delegate / Someday sort |
 | `domain/next-move.ts` | The one next thing to do inside a review |
 | `domain/approval.ts` | Which agent tool calls run without asking |
 | `server/github.ts`, `server/gh.ts` | The inbox from GitHub search, per account |
 | `server/agent-host.ts`, `server/home.ts` | Agent sessions started from the home page; the home API |
 | `cli/downstream.ts` | The agent's CLI |
 | `web/src/` | The review surface (React, Tailwind, [Pierre diffs](https://diffs.com) and [trees](https://www.npmjs.com/package/@pierre/trees), dagre) |
-| `scripts/demo.mjs` | Records the demo above against a real repository |
+| `server/install.ts` | Where Downstream's files live, in a clone or a published copy |
+| `scripts/film/` | The README's GIF and stills, against a made-up inbox (a stand-in `gh`) and a made-up storefront repository |
 
 ## License
 

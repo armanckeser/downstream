@@ -1,0 +1,75 @@
+{
+  "summary": "Customers can type a discount code at checkout. `postCheckout` passes the code to `priceCart`, which looks it up with `findCode` and takes `applyDiscount`'s amount off the subtotal before tax, so tax is charged on what the customer actually pays.\n\nThere are two kinds of code: a percentage of the subtotal (`WELCOME10`) or a fixed amount (`SPRING20`, $20 off). Unknown and expired codes throw `UnknownCode`.\n\nThe risk is the fixed-amount code: nothing stops it from taking off more than the cart is worth.",
+  "status": "ready",
+  "symbols": [
+    { "id": "src/routes/checkout.ts#postCheckout", "summary": "The checkout route: prices the cart, then charges the card for the total." },
+    { "id": "src/pricing/price-cart.ts#priceCart", "summary": "What the customer pays: subtotal, minus the discount, plus tax on the rest." },
+    { "id": "src/pricing/discount.ts#findCode", "summary": "Turns what the customer typed into a code, or refuses it." },
+    { "id": "src/pricing/discount.ts#applyDiscount", "summary": "How many cents a code takes off a subtotal." },
+    { "id": "src/pricing/discount.ts#UnknownCode", "summary": "Thrown for a code that doesn't exist or has expired." },
+    { "id": "src/pricing/codes.ts#CODES", "summary": "Every live discount code." },
+    { "id": "src/pricing/types.ts#DiscountCode", "summary": "A percentage code or a fixed-amount code, never both." },
+    { "id": "src/pricing/types.ts#Total", "summary": "The receipt, now with the discount on its own line." }
+  ],
+  "steps": [
+    {
+      "title": "The customer's code comes in with the cart",
+      "symbolId": "src/routes/checkout.ts#postCheckout",
+      "lines": { "start": 7, "end": 9 },
+      "body": "The route now takes an optional `code` and hands it straight to `priceCart`. Whatever `priceCart` returns is what the card is charged, so every rule about codes has to hold before this line."
+    },
+    {
+      "title": "The discount comes off before tax",
+      "symbolId": "src/pricing/price-cart.ts#priceCart",
+      "lines": { "start": 9, "end": 12 },
+      "body": "`priceCart` looks the code up, takes the discount off the subtotal, and charges tax only on what's left. A cart with no code prices exactly as before."
+    },
+    {
+      "title": "A code is matched the way people type it",
+      "symbolId": "src/pricing/discount.ts#findCode",
+      "lines": { "start": 7, "end": 10 },
+      "body": "Spaces are trimmed and case is ignored, so ` welcome10` works. An expired code is refused the same way as a made-up one, so a customer can't tell which codes once existed."
+    },
+    {
+      "title": "Two kinds of code, one amount",
+      "symbolId": "src/pricing/discount.ts#applyDiscount",
+      "lines": { "start": 14, "end": 16 },
+      "body": "A percentage code scales with the cart; a fixed code is the same amount for every cart. That second branch is where the problem is."
+    }
+  ],
+  "notes": [
+    {
+      "kind": "finding",
+      "severity": "blocker",
+      "category": "bug",
+      "symbolId": "src/pricing/discount.ts#applyDiscount",
+      "lines": { "start": 16, "end": 16 },
+      "title": "A $20 code on a $15 cart charges the customer −$5",
+      "body": "`applyDiscount` returns the full `amountCents` whatever the subtotal is. With `SPRING20` on a $15 cart, `priceCart` gets a taxable amount of −500 cents and a total of −540, and `postCheckout` sends that to `charge`.",
+      "fix": "Cap the discount at the subtotal.",
+      "impact": "Small carts with a fixed code get charged a negative amount, which most payment providers treat as a refund.",
+      "suggestion": { "lines": { "start": 16, "end": 16 }, "code": "  return Math.min(code.amountCents, subtotal);" }
+    },
+    {
+      "kind": "finding",
+      "severity": "concern",
+      "category": "test",
+      "symbolId": "src/pricing/price-cart.ts#priceCart",
+      "lines": { "start": 9, "end": 12 },
+      "title": "No test prices a cart with a code",
+      "body": "This is money math with a new branch, and nothing runs it. A test with `SPRING20` on a small cart would have caught the negative total.",
+      "fix": "One test: `priceCart` with a $15 cart and `SPRING20` totals 0.",
+      "impact": "The next change to discounts ships untested too."
+    },
+    {
+      "kind": "decision",
+      "symbolId": "src/pricing/types.ts#DiscountCode",
+      "title": "One type with two kinds, instead of a percent and an amount on every code",
+      "body": "Each code is either a percentage or a fixed amount, and the type says so: a percentage code has no `amountCents` to forget about.",
+      "alternatives": [
+        { "option": "Every code has both `percent` and `amountCents`, one of them zero", "tradeoff": "Simpler to store, but a code with both set would be legal and ambiguous." }
+      ]
+    }
+  ],
+  "outgoingBody": "This adds discount codes at checkout: a percentage or a fixed amount, taken off before tax.\n\nOne thing to fix before merging: a fixed-amount code can take off more than the cart is worth, and the customer gets charged a negative total. Capping the discount at the subtotal fixes it, and a test for that case would keep it fixed."
+}

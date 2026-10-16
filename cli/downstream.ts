@@ -11,7 +11,7 @@ import { severityLabel, type CodeSymbol, type Edge, type Note, type ReviewEvent,
 
 const skillDir = packageRoot;
 const argv = process.argv.slice(2);
-const cmd = argv[0] ?? "help";
+const cmd = argv[0] ?? "home";
 // Under the 300s headers timeout of Node's fetch.
 const WAIT_CHUNK_SECONDS = 240;
 
@@ -288,7 +288,7 @@ function describe(e: ReviewEvent, state: ReviewState | null): string {
 const HELP = `downstream: a review surface you and the user share.
 
 Start
-  home                     open the home page: every PR that needs you, one next action each
+  home                     open the home page: every PR that needs you, one next action each (also: no command)
   open [--base <ref>] [--head <ref>] [--pr <n>] [--title <t>]   review a change (default: working tree vs main)
   open --teach <path...>                                        explain existing code instead of a diff
   url | status | stop
