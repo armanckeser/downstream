@@ -2,7 +2,7 @@
   "name": "@armanckeser/downstream",
   "version": "0.2.0",
   "license": "MIT",
-  "description": "Too many pull requests waiting on you? Downstream picks the one that matters now, and Claude Code helps you finish it.",
+  "description": "Too many pull requests to review? Downstream shows which one to review first, and Claude Code helps you review it.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/armanckeser/downstream.git"
