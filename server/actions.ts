@@ -21,6 +21,7 @@ import {
   FindingCategory,
   Outgoing,
   SymbolStatus,
+  type Post,
   type Edge,
   type Review,
 } from "../domain/model.ts";
@@ -28,7 +29,8 @@ import { newId, now, type Store } from "./store.ts";
 import { resolveTarget, Workspace } from "./workspace.ts";
 import { tryGit } from "./analyze/git.ts";
 import { isTestFile } from "./analyze/graph.ts";
-import { draft, HeadMoved, publish } from "./publish.ts";
+import { draft, HeadMoved, postComment, publish } from "./publish.ts";
+import { goesOut } from "../domain/outgoing.ts";
 import { HEAD_MOVED } from "../domain/model.ts";
 
 export type ActionContext = {
@@ -120,6 +122,7 @@ export const openReview = defineAction({
         verdicts: [],
         outgoingBody: "",
         published: null,
+        posts: [],
       };
     } else {
       const account = input.pr ? ctx.accountFor(input.pr) : null;
@@ -141,6 +144,7 @@ export const openReview = defineAction({
         verdicts: [],
         outgoingBody: "",
         published: null,
+        posts: [],
       };
     }
     ctx.store.saveReview(review, ctx.root);
@@ -417,11 +421,14 @@ defineAction({
 
 defineAction({
   name: "note.status",
-  description: "Resolve, dismiss, or reopen a thread.",
+  description:
+    "Settle (resolve), dismiss, or reopen a thread. This settles the conversation; it doesn't change whether the thread's comment is in the review, except that dismissing a finding nobody chose to send keeps it out.",
   input: z.object({ noteId: z.string(), status: NoteStatus, reason: z.string().optional() }),
   run(ctx, input) {
     const note = requireNote(ctx, input.noteId);
-    ctx.store.putNote(ctx.reviewId, { ...note, status: input.status });
+    // The default (open findings go out) depends on status, so settling would silently change what is sent. Pin it.
+    const outgoing = note.outgoing ?? { include: input.status === "dismissed" ? false : goesOut(note), body: "" };
+    ctx.store.putNote(ctx.reviewId, { ...note, status: input.status, outgoing });
     if (input.reason) {
       ctx.store.addReply(ctx.reviewId, { id: newId("r"), noteId: note.id, author: ctx.actor, body: input.reason, createdAt: now() });
     }
@@ -623,5 +630,84 @@ defineAction({
     ctx.store.saveReview({ ...state.review, published, outgoingBody: d.body });
     ctx.store.emit(ctx.reviewId, "review.published", ctx.actor, published);
     return published;
+  },
+});
+
+// --- comments for other pull requests -------------------------------------------------------------
+
+function requirePost(review: Review, id: string): Post {
+  const post = review.posts.find((p) => p.id === id);
+  if (!post) throw new ActionError(`No drafted comment "${id}".`, 404);
+  return post;
+}
+
+function savePosts(ctx: ActionContext & { reviewId: string }, posts: Post[]) {
+  const review = ctx.store.review(ctx.reviewId)!;
+  ctx.store.saveReview({ ...review, posts });
+}
+
+defineAction({
+  name: "post.draft",
+  description:
+    "Draft a comment for another pull request or issue (`number`, and `repo` if it isn't this review's). It shows in the outbox with a Post button; it is not part of this review. Use this instead of pasting a comment into a reply.",
+  input: z.object({ number: z.number().int(), body: z.string().min(1), repo: z.string().optional(), noteId: z.string().optional() }),
+  run(ctx, input) {
+    const review = ctx.store.review(ctx.reviewId)!;
+    const repo = input.repo ?? review.repo ?? ctx.nameWithOwner;
+    if (!repo) throw new ActionError("This repo has no GitHub origin; pass `repo` as owner/name.");
+    const noteId = input.noteId ? requireNote(ctx, input.noteId).id : null;
+    const post: Post = { id: newId("p"), repo, number: input.number, body: input.body, noteId, author: ctx.actor, createdAt: now(), posted: null };
+    savePosts(ctx, [...review.posts, post]);
+    ctx.store.emit(ctx.reviewId, "post.drafted", ctx.actor, { postId: post.id, repo, number: post.number, noteId });
+    return post;
+  },
+});
+
+defineAction({
+  name: "post.update",
+  description: "Reword a drafted comment for another pull request.",
+  input: z.object({ postId: z.string(), body: z.string().min(1) }),
+  run(ctx, input) {
+    const review = ctx.store.review(ctx.reviewId)!;
+    const post = requirePost(review, input.postId);
+    if (post.posted) throw new ActionError("That comment is already posted; edit it on GitHub.", 409);
+    savePosts(ctx, review.posts.map((p) => (p.id === post.id ? { ...p, body: input.body } : p)));
+    ctx.store.emit(ctx.reviewId, "post.updated", ctx.actor, { postId: post.id, number: post.number });
+    return { ok: true };
+  },
+});
+
+defineAction({
+  name: "post.discard",
+  description: "Throw away a drafted comment for another pull request without posting it.",
+  input: z.object({ postId: z.string() }),
+  run(ctx, input) {
+    const review = ctx.store.review(ctx.reviewId)!;
+    const post = requirePost(review, input.postId);
+    if (post.posted) throw new ActionError("That comment is already posted; delete it on GitHub.", 409);
+    savePosts(ctx, review.posts.filter((p) => p.id !== post.id));
+    ctx.store.emit(ctx.reviewId, "post.discarded", ctx.actor, { postId: post.id, number: post.number });
+    return { ok: true };
+  },
+});
+
+defineAction({
+  name: "post.send",
+  description: "Post a drafted comment on its pull request. Outward-facing and permanent: the agent only calls this when the user has explicitly said to post it.",
+  input: z.object({ postId: z.string() }),
+  run(ctx, input) {
+    const review = ctx.store.review(ctx.reviewId)!;
+    const post = requirePost(review, input.postId);
+    if (post.posted) return post.posted;
+    let posted: { url: string; at: string };
+    try {
+      posted = { url: postComment(review, post), at: now() };
+    } catch (e) {
+      const err = e as Error & { stderr?: string };
+      throw new ActionError(`GitHub refused the comment: ${(err.stderr?.toString().trim() || err.message).split("\n").slice(0, 3).join(" ")}`, 502);
+    }
+    savePosts(ctx, review.posts.map((p) => (p.id === post.id ? { ...p, posted } : p)));
+    ctx.store.emit(ctx.reviewId, "post.sent", ctx.actor, { postId: post.id, number: post.number, url: posted.url });
+    return posted;
   },
 });

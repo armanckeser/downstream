@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { codeRoot, install, packageRoot, serverEntry } from "../server/install.ts";
+import { goesOut } from "../domain/outgoing.ts";
 import { severityLabel, type CodeSymbol, type Edge, type Note, type ReviewEvent, type ReviewState } from "../domain/model.ts";
 
 const skillDir = packageRoot;
@@ -225,6 +226,11 @@ function outline(state: ReviewState) {
   const open = notes.filter((n) => n.status === "open");
   out.push(`\nThreads (${open.length} open of ${notes.length})`);
   for (const n of notes) out.push(`  ${noteLine(n)}`);
+  const posts = state.review.posts;
+  if (posts.length) {
+    out.push(`\nComments for other PRs (${posts.filter((p) => !p.posted).length} not posted)`);
+    for (const p of posts) out.push(`  [${p.id}] ${p.repo}#${p.number}${p.posted ? ` posted ${p.posted.url}` : " not posted"}: ${p.body.split("\n")[0]!.slice(0, 80)}`);
+  }
   return out.join("\n");
 }
 
@@ -232,7 +238,7 @@ const short = (s: CodeSymbol | undefined, id: string) => (s ? `${s.container ? s
 
 function noteLine(n: Note) {
   const sev = n.severity ? `/${severityLabel[n.severity]}` : "";
-  const out = n.outgoing ? (n.outgoing.include ? "  [goes to PR]" : "  [private]") : "";
+  const out = goesOut(n) ? "  [in the review]" : "  [private]";
   const last = n.replies.at(-1);
   const waiting = last ? (last.author === "user" ? "  ← user replied" : "") : n.author === "user" ? "  ← from user" : "";
   return `#${n.number} [${n.id}] ${n.status === "open" ? "" : `(${n.status}) `}${n.kind}${sev} by ${n.author}: ${n.title}${n.symbolId ? `  @ ${n.symbolId}` : ""}${n.lines ? `:${n.lines.start}-${n.lines.end}` : ""}  (${n.replies.length} replies)${waiting}${out}`;
@@ -276,6 +282,14 @@ function describe(e: ReviewEvent, state: ReviewState | null): string {
       return "The user ended the review session.";
     case "note.updated":
       return `The user edited #${p.number} "${p.title}" (${(p.fields as string[]).join(", ")}). Run downstream draft to see what would be sent.`;
+    case "post.drafted":
+      return `The user drafted a comment for #${p.number} [${p.postId}]. It's in the outbox; the user posts it.`;
+    case "post.updated":
+      return `The user reworded the comment for #${p.number} [${p.postId}]. Leave their wording alone unless asked.`;
+    case "post.discarded":
+      return `The user threw away the comment for #${p.number} [${p.postId}].`;
+    case "post.sent":
+      return `The user posted the comment for #${p.number}: ${p.url}`;
     case "review.published":
       return `The user sent the review to the pull request (${p.event}, ${p.comments} inline comments): ${p.url}`;
     case "symbol.annotated":
@@ -308,7 +322,8 @@ Write (the browser uses the same actions)
   ask "…" [--symbol s] [--lines a-b]
   go <symbol> [--lines a-b] | go step <n> | go thread <id> | go map | go overview
   verdict approve|changes|comment ["…"]
-  outgoing <thread> "…" [--exclude]   word a thread for the PR author, or keep it private
+  outgoing <thread> "…" [--exclude]   put a thread in the review in these words, or keep it private
+  post <pr> "…" [--repo o/n] [--thread n]   draft a comment for ANOTHER pull request; the user posts it from the outbox
   draft                    the review exactly as it would be sent
   send [--event comment] [--force]   send it to the PR, only when the user has said to (--force: even though the PR changed since you opened it)
   reanalyze                re-read the code after edits
@@ -473,6 +488,14 @@ async function main() {
       const body = rest.join(" ") || str("body") || "";
       await call("note.update", { noteId, outgoing: { include, body } });
       console.log(include ? `${noteId} goes to the PR${body ? " in your wording" : ""}` : `${noteId} stays private`);
+      return;
+    }
+    case "post": {
+      // downstream post 45119 "comment for that PR" [--repo owner/name] [--thread 2]
+      const [number, ...rest] = pos;
+      const body = rest.join(" ") || str("body") || "";
+      const post = await call<{ id: string; repo: string; number: number }>("post.draft", { number: Number(number), body, ...(str("repo") ? { repo: str("repo") } : {}), ...(str("thread") ? { noteId: str("thread") } : {}) });
+      console.log(`drafted [${post.id}] for ${post.repo}#${post.number}: it's in the user's outbox, not posted`);
       return;
     }
     case "draft": {

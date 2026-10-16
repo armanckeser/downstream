@@ -166,7 +166,7 @@ review.get("/events", (c) => {
  * resolves, gives a verdict, ends the session) and returns those events.
  * While it blocks, the UI shows the agent as listening.
  */
-const LISTEN_TO = new Set(["note.added", "note.replied", "note.status", "note.updated", "ask", "review.verdict", "review.done", "review.published", "symbol.annotated", "symbol.added", "edge.added", "steps.set"]);
+const LISTEN_TO = new Set(["note.added", "note.replied", "note.status", "note.updated", "ask", "review.verdict", "review.done", "review.published", "post.drafted", "post.updated", "post.discarded", "post.sent", "symbol.annotated", "symbol.added", "edge.added", "steps.set"]);
 review.get("/wait", async (c) => {
   const { store } = c.var.repo;
   const id = reviewOf(c, c.req.query("review"));

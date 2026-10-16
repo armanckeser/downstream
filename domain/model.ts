@@ -158,6 +158,25 @@ export const FileChange = z.object({
 });
 export type FileChange = z.infer<typeof FileChange>;
 
+/**
+ * A comment for another pull request or issue that came out of this review's
+ * conversation (a follow-up for the PR that caused it, say). It is not part of
+ * the review; it is posted on its own, only when you press Post.
+ */
+export const Post = z.object({
+  id: z.string(),
+  /** `owner/name`; the review's repo unless said otherwise. */
+  repo: z.string(),
+  number: z.number().int(),
+  body: z.string(),
+  /** The thread it came out of, if any. */
+  noteId: z.string().nullable().default(null),
+  author: Author,
+  createdAt: z.string(),
+  posted: z.object({ url: z.string(), at: z.string() }).nullable().default(null),
+});
+export type Post = z.infer<typeof Post>;
+
 export const Verdict = z.object({
   by: Author,
   value: z.enum(["approve", "changes", "comment"]),
@@ -190,6 +209,8 @@ export const Review = z.object({
   /** The body of the review that goes to the pull request; the agent drafts it, the user edits it. */
   outgoingBody: z.string().default(""),
   published: z.object({ url: z.string(), at: z.string(), event: z.string(), comments: z.number().int() }).nullable().default(null),
+  /** Comments for other pull requests, drafted here and posted one by one. */
+  posts: z.array(Post).default([]),
 });
 export type Review = z.infer<typeof Review>;
 

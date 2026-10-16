@@ -1,10 +1,13 @@
 // The one thing to do next on a review. The review screen shows it as its only
 // primary button, so the next operation is never a question.
 import type { Note, ReviewState } from "./model.ts";
+import { unposted } from "./outgoing.ts";
 
 export type ReviewMove =
   /** The review went out; nothing left here. */
   | { kind: "sent"; url: string }
+  /** The review went out, but comments drafted for other PRs are still unposted. */
+  | { kind: "post"; count: number }
   /** The agent is waiting on you in a thread. */
   | { kind: "answer"; noteId: string; number: number }
   /** The agent hasn't written anything to read yet. */
@@ -37,7 +40,10 @@ const first = (notes: Note[]) => [...notes].sort((a, b) => a.number - b.number)[
  */
 export function nextMove(state: ReviewState, visited: ReadonlySet<string>): ReviewMove {
   const { review, steps, notes } = state;
-  if (review.published) return { kind: "sent", url: review.published.url };
+  if (review.published) {
+    const left = unposted(review.posts).length;
+    return left ? { kind: "post", count: left } : { kind: "sent", url: review.published.url };
+  }
   const blocked = first(notes.filter(awaitsYou));
   if (blocked) return { kind: "answer", noteId: blocked.id, number: blocked.number };
   const nothingWritten = !review.summary && steps.length === 0 && notes.length === 0;

@@ -3,9 +3,10 @@
 @import "@fontsource-variable/geist-mono";
 
 /*
-  One rule: code is the page, and the agent speaks in amber.
+  Two rules: code is the page, and the agent speaks in amber. Blue marks
+  the only things that leave Downstream: what the PR author will read.
   Everything else is ink on graphite. Change state is carried by shape
-  (+ ~ − ·), never by a second accent.
+  (+ ~ − ·), never by color.
 */
 @theme {
   --color-page: #111214;
@@ -23,6 +24,9 @@
   --color-agent-ink: #f7c27a;
   --color-agent-wash: rgb(242 166 59 / 0.09);
   --color-agent-line: rgb(242 166 59 / 0.35);
+  --color-out: #8fb2f0;
+  --color-out-wash: rgb(143 178 240 / 0.07);
+  --color-out-line: rgb(143 178 240 / 0.38);
   --color-add: #8cc29a;
   --color-del: #e08a7e;
 

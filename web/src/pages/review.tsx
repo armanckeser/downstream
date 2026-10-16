@@ -52,6 +52,8 @@ export function Review() {
         return openStep(m.stepId);
       case "send":
         return setSending(true);
+      case "post":
+        return setPane("margin");
       case "finish":
         return void action("review.done").then(() => navigate("/"));
       case "sent":
@@ -121,7 +123,7 @@ export function Review() {
             </a>
           )}
           <span className={`size-2 rounded-full ${presenceTone}`} title={presenceText} aria-label={presenceText} />
-          {move && move.kind !== "send" && move.kind !== "sent" && review?.mode === "diff" && (
+          {move && move.kind !== "send" && move.kind !== "sent" && move.kind !== "post" && review?.mode === "diff" && (
             <button type="button" onClick={() => setSending(true)} className="press hidden rounded-md px-2 py-1 text-[12.5px] text-ink-3 hover:bg-overlay hover:text-ink sm:block">
               Send…
             </button>
@@ -155,7 +157,7 @@ export function Review() {
           {view === "map" && <FlowMap />}
         </main>
         <div className={`min-h-0 border-line-subtle lg:block lg:border-l ${pane === "margin" ? "block h-[calc(100dvh-90px)]" : "hidden"} lg:h-auto`}>
-          <Margin agent={agent} />
+          <Margin agent={agent} onSend={() => setSending(true)} />
         </div>
       </div>
     </div>
@@ -164,6 +166,10 @@ export function Review() {
 
 const MOVE_LABEL: Record<ReviewMove["kind"], (m: ReviewMove, visited: number) => string> = {
   sent: () => "Back to inbox",
+  post: (m) => {
+    const n = (m as Extract<ReviewMove, { kind: "post" }>).count;
+    return `Post ${n} comment${n === 1 ? "" : "s"} for other PRs`;
+  },
   answer: (m) => `Answer #${(m as Extract<ReviewMove, { kind: "answer" }>).number}`,
   decide: (m) => `Decide #${(m as Extract<ReviewMove, { kind: "decide" }>).number}`,
   reading: () => "Agent is reading",

@@ -76,7 +76,7 @@ export class Store {
 
   review(id: string): Review | null {
     const row = this.db.prepare("SELECT data FROM reviews WHERE id = ?").get(id) as { data: string } | undefined;
-    return row ? { outgoingBody: "", published: null, ...JSON.parse(row.data) } : null;
+    return row ? { outgoingBody: "", published: null, posts: [], ...JSON.parse(row.data) } : null;
   }
 
   reviewRoot(id: string): string | null {

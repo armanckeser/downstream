@@ -24,7 +24,7 @@ Run the CLI as `node "${CLAUDE_SKILL_DIR}/bin/downstream.mjs" <command>`. Below 
 
 3. **Write** the walkthrough and your review in one batch: a JSON file and `downstream apply plan.json` (shape below). You can apply again; steps are replaced as a whole, notes are added, `updates` edit existing threads.
 
-4. **Converse.** Run `downstream wait`. It blocks until the user replies, asks, flags, edits, resolves or ends the session, then prints what happened with the exact command to answer (and their selected code, when they asked about a selection). While it blocks, the UI shows you as *listening*. Answer, then `wait` again.
+4. **Converse.** Run `downstream wait`. It blocks until the user replies, asks, edits, settles, posts or ends the session, then prints what happened with the exact command to answer (and their selected code, when they asked about a selection). While it blocks, the UI shows you as *listening*. Answer, then `wait` again.
 
 5. **Arrive at the review.** When the conversation settles, draft what the author will read (see *Sending the review*). The user checks it in **Send review** and sends it, or tells you to.
 
@@ -96,11 +96,12 @@ Two full examples from real reviews live in `examples/` (`kumbara-equity-grants.
 | The user… | You run |
 |---|---|
 | asks a question (`wait` shows `The user asked [n_x]…` with their selected code) | `downstream reply n_x "…"` |
-| replies in a thread | `downstream reply 3 "…"`, or `downstream resolve 3 "why"` when it's settled |
+| replies in a thread | `downstream reply 3 "…"`, or `downstream resolve 3 "why"` when it's settled (settling doesn't change whether it's in the review) |
 | pushes back on a finding or decision | answer honestly. If they're right, say so and `resolve` or `dismiss` it with the reason; if the finding changes, `downstream do note.update '{"noteId":"3","body":"…"}'` |
 | says "this", "here" | `downstream screen` shows their view, open frames and selected lines |
 | says "fix 2 and 5" (their own code) | edit the code, `downstream reanalyze`, then `downstream resolve 2 "Fixed: …"` |
-| edits a thread's outgoing wording | `wait` reports it; leave their wording alone unless asked |
+| edits a thread's outgoing wording, or a drafted comment for another PR | `wait` reports it; leave their wording alone unless asked |
+| wants to tell another PR something (a follow-up for the PR that caused a bug) | `downstream post <pr> "…" --thread 3`; never paste it into a reply and wait for "post it" |
 | gives a verdict, sends, or ends the session | acknowledge in chat |
 
 - `downstream go <symbol> [--lines a-b]`, `go step 3`, `go thread 3`, `go map` moves the user's view. Use it when your answer is "look at this".
@@ -113,15 +114,17 @@ Replies are markdown, shown in your voice in the margin. Keep them short: the cl
 
 ## Sending the review
 
-The conversation in the margin is between you and the user and never leaves. What the PR author reads is a separate, explicit draft:
+Threads are between you and the user and never leave. What other people read is shown in blue in the margin: an **outbox** at the top (this PR's review, plus any comments drafted for other PRs) and, on each thread, a card with the exact comment the author will get, or "Private".
 
-- **Which threads go out.** The user answers that per thread in the margin: **Send to author** (settles it, and it goes out) or **Don't send** for findings, **Got it** (private) or **Send to author too** for your explanations. That choice is `outgoing.include`; never override it. Threads the user hasn't answered: open findings go out, everything else stays private. You change it only when asked: `downstream outgoing 3 "…"` (send, in these words) or `downstream outgoing 4 --exclude`.
+- **Which threads go out.** Open findings are in the review by default; everything else is private. The user flips a thread with **Add to review** / **Make private** on its card; that's `outgoing.include`, never override it. Settling a thread (`resolve`) keeps whatever it was; `dismiss` on a finding nobody chose to send takes it out. You change it only when asked: `downstream outgoing 3 "…"` (in the review, in these words) or `downstream outgoing 4 --exclude`. A thread with no line (on the whole change) goes into the review body.
+- **Never ask "send it or keep it private?" in a reply.** The card already shows the answer and the button to change it; ask only when the conversation leaves it genuinely unclear.
 - **The words.** Without outgoing wording, a finding goes out as written (severity, title, problem, fix, suggestion, impact). Reword when the conversation changed the finding, or when it should read as a question to the author. Write to the author, not to the user: no references to your conversation, and no `#3` thread numbers (on GitHub those link to issues and pull requests); name the problem instead.
 - **The body.** `outgoingBody` (via `apply` or `downstream do review.update '{"outgoingBody":"…"}'`): what the change does in a sentence or two, what must change before merging, and anything you could not check. Plain and kind.
 - **The verdict.** `downstream verdict changes|approve|comment "…"`. GitHub doesn't allow approving or requesting changes on your own pull request; use comment there.
+- **Comments for other PRs.** When the conversation produces something for a different PR or issue (the PR that introduced a bug, a follow-up request), draft it with `downstream post <number> "…" [--repo owner/name] [--thread 3]`. It shows in the outbox with its own **Post** button; it is not part of this review. Write it to that PR's people, without references to this conversation.
 - `downstream draft` prints exactly what would be sent: the event, the body, each inline comment, and the comments that fall outside the diff (GitHub only takes inline comments on changed lines and their context, so those go into the body).
 
-Sending is public and permanent. **Never run `downstream send` on your own initiative.** The user sends from the Send review panel, or tells you to in chat ("send it"); then run `downstream draft`, show them the verdict and the number of comments in one line, and send only after they confirm. Only pull request reviews (`open --pr`) can be sent; for anything else the panel copies the review as markdown. If the PR changed since you opened it, `send` refuses: tell the user, and offer to re-open it (`open --pr <n>`) or, only if they say so, `send --force`.
+Sending and posting are public and permanent. **Never run `downstream send`, or `downstream do post.send`, on your own initiative.** The user sends from the Send review panel, or tells you to in chat ("send it"); then run `downstream draft`, show them the verdict and the number of comments in one line, and send only after they confirm. Only pull request reviews (`open --pr`) can be sent; for anything else the panel copies the review as markdown. If the PR changed since you opened it, `send` refuses: tell the user, and offer to re-open it (`open --pr <n>`) or, only if they say so, `send --force`.
 
 ## Languages
 

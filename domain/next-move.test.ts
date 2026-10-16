@@ -2,9 +2,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { nextMove } from "./next-move.ts";
-import type { Note, ReviewState, Step } from "./model.ts";
+import type { Note, Post, ReviewState, Step } from "./model.ts";
 
-function state(overrides: { summary?: string; steps?: Step[]; notes?: Note[]; mode?: "diff" | "teach"; published?: boolean }): ReviewState {
+function state(overrides: { summary?: string; steps?: Step[]; notes?: Note[]; mode?: "diff" | "teach"; published?: boolean; posts?: Post[] }): ReviewState {
   return {
     review: {
       id: "rv_1",
@@ -23,6 +23,7 @@ function state(overrides: { summary?: string; steps?: Step[]; notes?: Note[]; mo
       verdicts: [],
       outgoingBody: "",
       published: overrides.published ? { url: "https://github.com/greendale/pull/1#review", at: "2026-10-01T11:00:00Z", event: "COMMENT", comments: 2 } : null,
+      posts: overrides.posts ?? [],
     },
     files: [],
     symbols: [],
@@ -104,6 +105,29 @@ test("nextMove finishes a tour instead of sending it", () => {
 
 test("nextMove reports a sent review even with threads still open", () => {
   const move = nextMove(state({ summary: "x", published: true, notes: [note({})] }), new Set());
+  assert.deepEqual(move, { kind: "sent", url: "https://github.com/greendale/pull/1#review" });
+});
+
+const post = (posted: boolean): Post => ({
+  id: "p_1",
+  repo: "greendale/study-room",
+  number: 9,
+  body: "@abed can you add a dirty flag?",
+  noteId: null,
+  author: "agent",
+  createdAt: "2026-10-01T10:30:00Z",
+  posted: posted ? { url: "https://github.com/greendale/study-room/pull/9#issuecomment-1", at: "2026-10-01T11:30:00Z" } : null,
+});
+
+test("nextMove asks you to post a comment for another PR that's still unposted after the review went out", () => {
+  // Regression guarded: the review was sent, the screen said "Back to inbox", and the
+  // follow-up drafted for another PR was forgotten.
+  const move = nextMove(state({ summary: "x", published: true, posts: [post(false)] }), new Set());
+  assert.deepEqual(move, { kind: "post", count: 1 });
+});
+
+test("nextMove reports a sent review once every comment for other PRs is posted", () => {
+  const move = nextMove(state({ summary: "x", published: true, posts: [post(true)] }), new Set());
   assert.deepEqual(move, { kind: "sent", url: "https://github.com/greendale/pull/1#review" });
 });
 

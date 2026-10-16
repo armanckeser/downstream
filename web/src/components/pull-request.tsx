@@ -111,6 +111,10 @@ export function whyText(why: Why, item: Item, short = false): string {
 /** Where a Downstream review stands, in your terms. A review the agent never wrote into says nothing. */
 const REVIEW_LINE: Record<ReviewMove["kind"], (m: ReviewMove) => string | null> = {
   sent: () => "Review sent",
+  post: (m) => {
+    const n = (m as Extract<ReviewMove, { kind: "post" }>).count;
+    return `Review sent; ${n} comment${n === 1 ? "" : "s"} for other PRs not posted`;
+  },
   answer: () => "The agent asked you something",
   decide: () => "Read through, threads to settle",
   reading: () => null,
@@ -118,7 +122,7 @@ const REVIEW_LINE: Record<ReviewMove["kind"], (m: ReviewMove) => string | null> 
     const w = m as Extract<ReviewMove, { kind: "walk" }>;
     return w.order === 1 ? "Walkthrough ready" : `Walkthrough: step ${w.order} of ${w.total}`;
   },
-  send: () => "Read through, ready to send",
+  send: () => "Read through, review not sent yet",
   finish: () => "Walkthrough done",
 };
 

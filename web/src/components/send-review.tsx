@@ -13,7 +13,7 @@ type Draft = {
   body: string;
   markdown: string;
   target: { pr: number; repo: string | null } | null;
-  comments: { noteId: string; number: number; path: string; line: number; startLine: number | null; body: string; inline: boolean }[];
+  comments: { noteId: string; number: number; path: string | null; line: number; startLine: number | null; body: string; inline: boolean }[];
 };
 
 const EVENTS: [Event, string][] = [
@@ -59,6 +59,7 @@ export function SendReview({ onClose }: { onClose: () => void }) {
   const inline = useMemo(() => draft?.comments.filter((c) => c.inline) ?? [], [draft]);
   const folded = useMemo(() => draft?.comments.filter((c) => !c.inline) ?? [], [draft]);
   const canSend = !!draft?.target?.repo && !review?.published;
+  const elsewhere = (review?.posts ?? []).filter((p) => !p.posted);
 
   const send = async (force = false) => {
     setBusy(true);
@@ -81,7 +82,7 @@ export function SendReview({ onClose }: { onClose: () => void }) {
       <aside className="fade-in flex h-full w-full max-w-[36rem] flex-col border-l border-line bg-pane" aria-label="Send review">
         <header className="flex items-start gap-3 border-b border-line-subtle px-5 py-4">
           <div className="min-w-0 flex-1">
-            <h2 className="text-[15px] font-medium text-ink">Send review</h2>
+            <h2 className="text-[15px] font-medium text-ink">{draft?.target ? `What the author of #${draft.target.pr} gets` : "Send review"}</h2>
             <p className="mt-0.5 font-mono text-2xs text-ink-3">
               {draft?.target ? `${draft.target.repo ?? "unknown repo"} · #${draft.target.pr}` : "Not a pull request review: copy it as markdown instead."}
             </p>
@@ -122,12 +123,12 @@ export function SendReview({ onClose }: { onClose: () => void }) {
             placeholder={draft?.body ?? "What this change does, and what must change before it merges."}
             className="block w-full resize-y rounded-md border border-line bg-page px-3 py-2.5 text-[13px] leading-5 text-ink placeholder:text-ink-4 focus:border-ink-4 focus:outline-none"
           />
-          <p className="mt-1 text-[11.5px] text-ink-3">Empty uses the agent's draft above. Your conversation with the agent is never sent.</p>
+          <p className="mt-1 text-[11.5px] text-ink-3">Empty uses the agent's draft shown greyed above. This body and the comments below are all that's posted; your threads with the agent never are.</p>
 
           <h3 className="eyebrow mt-6 flex pb-1.5">
-            Inline comments <span className="ml-auto font-mono normal-case tracking-normal text-ink-4">{inline.length}</span>
+            Comments <span className="ml-auto font-mono normal-case tracking-normal text-ink-4">{inline.length} inline{folded.length ? ` · ${folded.length} in the body` : ""}</span>
           </h3>
-          {inline.length === 0 && <p className="text-[12.5px] text-ink-3">None. Mark threads with “Send to the PR author”.</p>}
+          {inline.length + folded.length === 0 && <p className="text-[12.5px] text-ink-3">None. Use “Add to review” on a thread to put it here.</p>}
           <ul className="space-y-2">
             {[...inline, ...folded].map((c) => (
               <li key={c.noteId} className="rounded-md border border-line-subtle">
@@ -136,15 +137,14 @@ export function SendReview({ onClose }: { onClose: () => void }) {
                     #{c.number}
                   </button>
                   <span className="truncate font-mono text-2xs text-ink-3">
-                    {c.path}:{c.startLine ? `${c.startLine}–` : ""}
-                    {c.line}
+                    {c.path ? `${c.path}:${c.startLine ? `${c.startLine}–` : ""}${c.line}` : "the whole change"}
                   </span>
-                  {!c.inline && <span className="font-mono text-2xs text-ink-3" title="GitHub only takes inline comments on lines in the diff; this one goes into the review body">in body</span>}
+                  {!c.inline && <span className="font-mono text-2xs text-ink-3" title={c.path ? "GitHub only takes inline comments on lines in the diff; this one goes into the review body" : "Not on any line, so it goes into the review body"}>in body</span>}
                   <button
                     type="button"
                     onClick={() => void action("note.update", { noteId: c.noteId, outgoing: { include: false, body: "" } })}
                     className="press ml-auto rounded p-0.5 text-ink-4 hover:text-ink-2"
-                    title="Keep this one private"
+                    title="Make private: take it out of the review"
                   >
                     <X size={12} />
                   </button>
@@ -155,6 +155,11 @@ export function SendReview({ onClose }: { onClose: () => void }) {
               </li>
             ))}
           </ul>
+          {elsewhere.length > 0 && (
+            <p className="mt-4 text-[12px] text-ink-3">
+              Not part of this review: {elsewhere.length} comment{elsewhere.length === 1 ? "" : "s"} for {[...new Set(elsewhere.map((p) => `#${p.number}`))].join(", ")}, posted on {elsewhere.length === 1 ? "its" : "their"} own from the outbox.
+            </p>
+          )}
           {error && <p className="mt-4 text-[12.5px] text-del">{error}</p>}
         </div>
 
@@ -162,7 +167,7 @@ export function SendReview({ onClose }: { onClose: () => void }) {
           {confirming ? (
             <div className="flex items-center gap-2">
               <p className="flex-1 text-[12.5px] text-ink-2">
-                Post to <span className="font-mono text-ink">#{draft?.target?.pr}</span> as {EVENTS.find(([e]) => e === effective)?.[1].toLowerCase()} with {inline.length} inline comments? This is public and can't be unsent.
+                Post to <span className="font-mono text-ink">#{draft?.target?.pr}</span> as you, as {EVENTS.find(([e]) => e === effective)?.[1].toLowerCase()}, with this body and {inline.length} inline comment{inline.length === 1 ? "" : "s"}? It's public and can't be unsent.
               </p>
               <button type="button" onClick={() => setConfirming(false)} className="press rounded-md px-2.5 py-1.5 text-[12.5px] text-ink-3 hover:bg-overlay">
                 Back
@@ -190,7 +195,7 @@ export function SendReview({ onClose }: { onClose: () => void }) {
                 className="press ml-auto rounded-md bg-ink px-3 py-1.5 text-[12.5px] font-medium text-page hover:bg-white disabled:opacity-30"
                 title={canSend ? "Review what gets posted, then confirm" : review?.published ? "Already sent" : "Only pull request reviews can be sent"}
               >
-                Send to #{draft?.target?.pr ?? "PR"}…
+                Post review to #{draft?.target?.pr ?? "PR"}…
               </button>
             </div>
           )}

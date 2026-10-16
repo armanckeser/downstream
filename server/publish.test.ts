@@ -5,7 +5,8 @@ import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { goesOut, HeadMoved, publish, type Draft } from "./publish.ts";
+import { HeadMoved, publish, type Draft } from "./publish.ts";
+import { goesOut } from "../domain/outgoing.ts";
 import type { Note, ReviewState } from "../domain/model.ts";
 
 function note(overrides: Partial<Note>): Note {
@@ -92,6 +93,7 @@ function prReview(head: string): ReviewState {
       verdicts: [],
       outgoingBody: "",
       published: null,
+      posts: [],
     },
     files: [],
     symbols: [],

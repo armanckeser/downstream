@@ -1,8 +1,10 @@
-// The margin: everything said about the code, threaded, plus a way to say more.
-// The agent hears what's written here through `downstream wait`.
+// The margin: what goes to GitHub on top, then your private threads with the
+// agent, plus a way to ask more. The agent hears what's written here through
+// `downstream wait`; nobody else reads a thread unless its blue card says so.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ArrowUp, Check, RotateCcw, Send, X } from "lucide-react";
-import type { Note, Presence, Severity } from "@domain/model.ts";
+import { ArrowUp, Check, Lock, RotateCcw, X } from "lucide-react";
+import type { Note, Presence } from "@domain/model.ts";
+import { goesOut } from "@domain/outgoing.ts";
 import type { AgentView } from "@domain/agent.ts";
 import { delivery, type Delivery } from "@domain/delivery.ts";
 import { action } from "../lib/api.ts";
@@ -14,6 +16,7 @@ import { useHover } from "./hover.tsx";
 import { timeAgo } from "../lib/time.ts";
 import { navigate } from "../lib/route.ts";
 import { Approvals, MoveToTerminal, STATUS_TEXT, StatusDot } from "./agent.tsx";
+import { AuthorCard, Outbox, PostCard } from "./outbox.tsx";
 
 type Filter = "open" | "all";
 
@@ -27,7 +30,7 @@ function rank(n: Note): number {
   return 6;
 }
 
-export function Margin({ agent }: { agent: AgentView | null }) {
+export function Margin({ agent, onSend }: { agent: AgentView | null; onSend: () => void }) {
   const { state, trail, noteId } = useReview();
   const [filter, setFilter] = useState<Filter>("open");
   const notes = state?.notes ?? [];
@@ -44,9 +47,11 @@ export function Margin({ agent }: { agent: AgentView | null }) {
   return (
     <aside className="flex h-full min-h-0 flex-col" aria-label="Conversation">
       {agent && <AgentStrip agent={agent} />}
+      <Outbox onSend={onSend} />
       <div className="flex items-center gap-2 px-4 pb-1 pt-3">
-        <h2 className="text-[13px] font-medium text-ink-2">Threads</h2>
-        <span className="font-mono text-2xs text-ink-4">{openCount}</span>
+        <Lock size={12} className="text-ink-4" />
+        <h2 className="text-[13px] font-medium text-ink-2">You and the agent</h2>
+        <span className="font-mono text-2xs text-ink-4">{openCount} open</span>
         {notes.length > openCount && (
           <button type="button" onClick={() => setFilter((f) => (f === "open" ? "all" : "open"))} aria-pressed={filter === "all"} className="press ml-auto rounded-md px-1.5 py-0.5 text-[12px] text-ink-3 hover:bg-overlay hover:text-ink-2">
             {filter === "open" ? "Show settled" : "Hide settled"}
@@ -135,6 +140,7 @@ function Thread({ note }: { note: Note }) {
             )}
             <span className="ml-auto flex shrink-0 items-center gap-2">
               {yourTurn && <span className="font-mono text-2xs text-agent">your turn</span>}
+              {state?.review.pr && goesOut(note) && <span className="rounded border border-out-line px-1 font-mono text-2xs text-out" title="Its comment is in the review you send">in review</span>}
               {standing === "stalled" && <span className={`font-mono text-2xs ${DELIVERY_TAG.stalled.tone}`}>{DELIVERY_TAG.stalled.label}</span>}
             </span>
           </span>
@@ -181,6 +187,10 @@ function DeliveryLine({ standing, presence }: { standing: Delivery; presence: Pr
 }
 
 function ThreadBody({ note, standing, presence }: { note: Note; standing: Delivery | null; presence: Presence }) {
+  const { state } = useReview();
+  const posts = (state?.review.posts ?? []).filter((p) => p.noteId === note.id);
+  // Going out in the agent's own words: the note is the comment, so it's shown once, as the card.
+  const asWritten = !!state?.review.pr && goesOut(note) && !note.outgoing?.body.trim();
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -205,9 +215,15 @@ function ThreadBody({ note, standing, presence }: { note: Note; standing: Delive
         <AuthorTag author={note.author} />
         <span className="font-mono text-2xs text-ink-4">{timeAgo(note.createdAt)}</span>
       </div>
-      {note.body && <div className={note.author === "agent" ? "voice" : ""}><Markdown text={note.body} /></div>}
-      {note.fix && <Labeled label="Fix" text={note.fix} />}
-      {note.impact && <Labeled label="If we skip it" text={note.impact} />}
+      {asWritten ? (
+        <AuthorCard note={note} onError={setError} />
+      ) : (
+        <>
+          {note.body && <div className={note.author === "agent" ? "voice" : ""}><Markdown text={note.body} /></div>}
+          {note.fix && <Labeled label="Fix" text={note.fix} />}
+          {note.impact && <Labeled label="If we skip it" text={note.impact} />}
+        </>
+      )}
       {note.alternatives.length > 0 && (
         <div className="mt-2.5 rounded-md border border-line-subtle">
           <p className="eyebrow border-b border-line-subtle px-2.5 py-1.5">Considered instead</p>
@@ -221,7 +237,7 @@ function ThreadBody({ note, standing, presence }: { note: Note; standing: Delive
           </ul>
         </div>
       )}
-      {note.suggestion && <SuggestionBlock suggestion={note.suggestion} />}
+      {note.suggestion && !asWritten && <SuggestionBlock suggestion={note.suggestion} />}
       {note.replies.length > 0 && (
         <ol className="mt-3 space-y-2.5 border-t border-line-subtle pt-2.5">
           {note.replies.map((r) => (
@@ -236,7 +252,12 @@ function ThreadBody({ note, standing, presence }: { note: Note; standing: Delive
         </ol>
       )}
       {standing && <DeliveryLine standing={standing} presence={presence} />}
-      <Decision note={note} reason={draft} onDecided={() => setDraft("")} onError={setError} />
+      {!asWritten && <AuthorCard note={note} onError={setError} />}
+      {posts.map((p) => (
+        <div key={p.id} className="mt-2">
+          <PostCard post={p} />
+        </div>
+      ))}
       <div className="mt-3">
         <label className="sr-only" htmlFor={`reply-${note.id}`}>
           Reply
@@ -249,11 +270,12 @@ function ThreadBody({ note, standing, presence }: { note: Note; standing: Delive
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send();
           }}
           rows={2}
-          placeholder={note.kind === "decision" ? "Push back, or agree…" : note.author === "agent" ? "Reply to the agent…" : "Add to this…"}
+          placeholder="Reply to the agent (private)…"
           className="block w-full resize-none rounded-md border border-line bg-page px-2.5 py-2 text-[13px] text-ink placeholder:text-ink-4 focus:border-ink-4 focus:outline-none"
         />
         {error && <p className="mt-1 text-[12px] text-del">{error}</p>}
         <div className="mt-1.5 flex items-center gap-1">
+          <Settle note={note} reason={draft} onSettled={() => setDraft("")} onError={setError} />
           <button
             type="button"
             disabled={!draft.trim() || busy}
@@ -268,12 +290,8 @@ function ThreadBody({ note, standing, presence }: { note: Note; standing: Delive
   );
 }
 
-type Mode = "ask" | "flag" | "note";
-
 function Composer() {
   const { selection, trail, index, setSelection, openNote } = useReview();
-  const [mode, setMode] = useState<Mode>("ask");
-  const [severity, setSeverity] = useState<Severity>("concern");
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -300,13 +318,7 @@ function Composer() {
     setBusy(true);
     setError(null);
     try {
-      const where = { symbolId: s?.id ?? null, file: selection?.file ?? s?.file ?? null, lines: selection?.lines ?? null, side: selection?.side ?? "new" };
-      const title = body.split("\n")[0]!.slice(0, 120);
-      const rest = body.length > title.length ? body : "";
-      const note =
-        mode === "ask"
-          ? await action<Note>("ask", { body, ...where })
-          : await action<Note>("note.add", { kind: mode === "flag" ? "finding" : "comment", severity: mode === "flag" ? severity : null, title, body: rest, ...where });
+      const note = await action<Note>("ask", { body, symbolId: s?.id ?? null, file: selection?.file ?? s?.file ?? null, lines: selection?.lines ?? null, side: selection?.side ?? "new" });
       setDraft("");
       setSelection(null);
       openNote(note.id);
@@ -319,25 +331,9 @@ function Composer() {
 
   return (
     <div className="border-t border-line-subtle bg-pane px-3 pb-3 pt-2.5">
-      <div className="flex items-center gap-1 pb-2">
-        {(
-          [
-            ["ask", "Ask"],
-            ["flag", "Flag"],
-            ["note", "Note"],
-          ] as const
-        ).map(([m, label]) => (
-          <button key={m} type="button" onClick={() => setMode(m)} aria-pressed={mode === m} className={`press rounded-md px-2 py-0.5 text-[12px] ${mode === m ? "bg-overlay text-ink" : "text-ink-3 hover:text-ink-2"}`}>
-            {label}
-          </button>
-        ))}
-        {mode === "flag" && (
-          <select value={severity} onChange={(e) => setSeverity(e.target.value as Severity)} className="ml-1 rounded-md border border-line bg-page px-1.5 py-0.5 font-mono text-2xs text-ink-2 focus:outline-none" aria-label="Severity">
-            <option value="blocker">blocker</option>
-            <option value="concern">concern</option>
-            <option value="nit">nit</option>
-          </select>
-        )}
+      <div className="flex items-center gap-1.5 pb-2">
+        <Lock size={11} className="shrink-0 text-ink-4" />
+        <span className="shrink-0 text-[12px] text-ink-2">Ask the agent</span>
         <span className="ml-auto truncate pl-2 font-mono text-2xs text-ink-3" title={anchor}>
           on {anchor}
         </span>
@@ -348,7 +344,7 @@ function Composer() {
         )}
       </div>
       <label htmlFor="composer" className="sr-only">
-        Message
+        Ask the agent
       </label>
       <div className="relative">
         <textarea
@@ -360,7 +356,7 @@ function Composer() {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) void send();
           }}
           rows={3}
-          placeholder={mode === "ask" ? "Ask about this…" : mode === "flag" ? "What's wrong here?" : "A note for the record…"}
+          placeholder="Private to you and the agent. To tell the author something, ask the agent to draft it."
           className="block w-full resize-none rounded-md border border-line bg-page px-2.5 py-2 pr-11 text-[13px] text-ink placeholder:text-ink-4 focus:border-ink-4 focus:outline-none"
         />
         <button
@@ -368,7 +364,7 @@ function Composer() {
           onClick={() => void send()}
           disabled={!draft.trim() || busy}
           className="press absolute bottom-2 right-2 grid size-7 place-items-center rounded-md bg-ink text-page hover:bg-white disabled:opacity-25"
-          title="Send (⌘↵)"
+          title="Ask (⌘↵)"
         >
           <ArrowUp size={14} />
         </button>
@@ -406,85 +402,28 @@ function Labeled({ label, text }: { label: string; text: string }) {
   );
 }
 
-/** Mirrors server/publish.ts goesOut for display; the server decides what is actually sent. */
-export function goesOut(n: Note): boolean {
-  if (n.outgoing) return n.outgoing.include;
-  return n.kind === "finding" && n.status === "open";
-}
-
 /**
- * The one question each thread asks you: does the author see this? A finding is
- * sent or not; the agent's explanations are private until you say otherwise.
- * Either answer settles the thread, so it leaves "Needs you". The conversation
- * above it never leaves Downstream.
+ * Settling ends the conversation in a thread; it doesn't change whether the
+ * author sees it (that's the blue card). The server pins that choice on settle.
  */
-function Decision({ note, reason, onDecided, onError }: { note: Note; reason: string; onDecided: () => void; onError: (e: string | null) => void }) {
-  const [rewording, setRewording] = useState(false);
-  const [text, setText] = useState(note.outgoing?.body ?? "");
-  useEffect(() => setText(note.outgoing?.body ?? ""), [note.outgoing?.body]);
-  const decide = async (send: boolean) => {
+function Settle({ note, reason, onSettled, onError }: { note: Note; reason: string; onSettled: () => void; onError: (e: string | null) => void }) {
+  const change = async (status: "resolved" | "open") => {
     onError(null);
     try {
-      await action("note.update", { noteId: note.id, outgoing: { include: send, body: note.outgoing?.body ?? "" } });
-      await action("note.status", { noteId: note.id, status: send || note.kind !== "finding" ? "resolved" : "dismissed", reason: reason.trim() || undefined });
-      onDecided();
+      await action("note.status", { noteId: note.id, status, reason: status === "resolved" ? reason.trim() || undefined : undefined });
+      onSettled();
     } catch (e) {
       onError((e as Error).message);
     }
   };
-  const undo = async () => {
-    onError(null);
-    try {
-      await action("note.status", { noteId: note.id, status: "open" });
-      await action("note.update", { noteId: note.id, outgoing: null });
-    } catch (e) {
-      onError((e as Error).message);
-    }
-  };
-  const going = goesOut(note);
-
-  if (note.status === "open") {
-    const finding = note.kind === "finding";
-    return (
-      <div className="mt-3 flex flex-wrap items-center gap-1.5">
-        <button type="button" onClick={() => void decide(true)} className="press flex items-center gap-1.5 rounded-md border border-line px-2.5 py-1 text-[12.5px] text-ink hover:bg-overlay" title="It goes in the review you send">
-          <Send size={12} /> {finding ? "Send to author" : "Send to author too"}
-        </button>
-        <button type="button" onClick={() => void decide(false)} className="press flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[12.5px] text-ink-2 hover:bg-overlay hover:text-ink" title={finding ? "Keep it out of the review" : "Settled; stays between you and the agent"}>
-          {finding ? <><X size={12} /> Don't send</> : <><Check size={12} /> Got it</>}
-        </button>
-        {finding && <span className="text-[11.5px] text-ink-4">Unanswered findings go out too.</span>}
-      </div>
-    );
-  }
-
-  return (
-    <div className="mt-3 rounded-md border border-line-subtle px-2.5 py-2">
-      <div className="flex items-center gap-2 text-[12.5px]">
-        {going ? <Send size={12} className="text-agent-ink" /> : note.kind === "finding" ? <X size={12} className="text-ink-4" /> : <Check size={12} className="text-ink-4" />}
-        <span className={going ? "text-ink" : "text-ink-3"}>{going ? "Going to the author" : note.kind === "finding" ? "Not sending" : "Got it, kept private"}</span>
-        <span className="ml-auto flex items-center gap-1">
-          {going && (
-            <button type="button" onClick={() => setRewording((r) => !r)} className="press rounded px-1.5 py-0.5 text-[12px] text-ink-3 hover:bg-overlay hover:text-ink">
-              {rewording ? "Done" : note.outgoing?.body ? "Edit wording" : "Reword"}
-            </button>
-          )}
-          <button type="button" onClick={() => void undo()} className="press flex items-center gap-1 rounded px-1.5 py-0.5 text-[12px] text-ink-3 hover:bg-overlay hover:text-ink">
-            <RotateCcw size={11} /> Undo
-          </button>
-        </span>
-      </div>
-      {going && rewording && (
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onBlur={() => text !== (note.outgoing?.body ?? "") && void action("note.update", { noteId: note.id, outgoing: { include: true, body: text } })}
-          rows={4}
-          placeholder="Empty: it goes out as written (title, problem, fix, suggestion). Write here to say it differently to the author."
-          className="mt-2 block w-full resize-y rounded-md border border-line bg-page px-2.5 py-2 text-[12.5px] leading-5 text-ink placeholder:text-ink-4 focus:border-ink-4 focus:outline-none"
-        />
-      )}
-    </div>
+  return note.status === "open" ? (
+    <button type="button" onClick={() => void change("resolved")} className="press flex items-center gap-1 rounded-md px-2 py-1 text-[12px] text-ink-3 hover:bg-overlay hover:text-ink" title={reason.trim() ? "Settle, with your text as the last word" : "Nothing left to discuss here"}>
+      <Check size={12} /> Settle
+    </button>
+  ) : (
+    <button type="button" onClick={() => void change("open")} className="press flex items-center gap-1 rounded-md px-2 py-1 text-[12px] text-ink-3 hover:bg-overlay hover:text-ink">
+      <RotateCcw size={11} /> {note.status === "dismissed" ? "Dismissed" : "Settled"} · reopen
+    </button>
   );
 }
 

@@ -1,14 +1,16 @@
 // Turning the review you and the agent arrived at into what the PR author sees.
 // The conversation stays private; only threads marked to go out are sent, in
 // the words drafted for the author, after the user presses Send.
-import { severityLabel, type Note, type Review, type ReviewState } from "../domain/model.ts";
+import type { Post, Review, ReviewState } from "../domain/model.ts";
+import { commentBody, goesOut } from "../domain/outgoing.ts";
 import { git } from "./analyze/git.ts";
 import { gh } from "./gh.ts";
 
 export type DraftComment = {
   noteId: string;
   number: number;
-  path: string;
+  /** Null for a comment on the whole change; it goes into the review body. */
+  path: string | null;
   line: number;
   startLine: number | null;
   side: "RIGHT" | "LEFT";
@@ -25,30 +27,6 @@ export type Draft = {
   markdown: string;
 };
 
-/** Which threads go out by default: open findings. Anything else only when someone marks it. */
-export function goesOut(n: Note): boolean {
-  if (n.outgoing) return n.outgoing.include;
-  return n.kind === "finding" && n.status === "open";
-}
-
-/** The comment as the PR author reads it. Written in the agent's draft if there is one. */
-export function commentBody(n: Note): string {
-  if (n.outgoing?.body.trim()) return n.outgoing.body.trim();
-  const parts: string[] = [];
-  const label = n.kind === "finding" && n.severity ? `**${capitalize(severityLabel[n.severity])}:** ` : "";
-  parts.push(`${label}${n.title}`);
-  if (n.body) parts.push(n.body);
-  if (n.fix) parts.push(`**Fix:** ${n.fix}`);
-  if (n.suggestion && n.lines && n.suggestion.lines.start === n.lines.start && n.suggestion.lines.end === n.lines.end) {
-    parts.push("```suggestion\n" + n.suggestion.code.replace(/\n$/, "") + "\n```");
-  } else if (n.suggestion) {
-    parts.push("```\n" + n.suggestion.code.replace(/\n$/, "") + "\n```");
-  }
-  if (n.impact) parts.push(`**If we skip it:** ${n.impact}`);
-  return parts.join("\n\n");
-}
-
-const capitalize = (s: string) => s[0]!.toUpperCase() + s.slice(1);
 
 function diffLines(root: string, review: Review, path: string): { right: Set<number>; left: Set<number> } {
   const right = new Set<number>();
@@ -74,9 +52,12 @@ export function draft(root: string, state: ReviewState, overrides: { event?: Dra
   const cache = new Map<string, ReturnType<typeof diffLines>>();
   const comments: DraftComment[] = [];
   for (const n of [...state.notes].sort((a, b) => a.number - b.number)) {
-    if (!goesOut(n) || !n.file) continue;
+    if (!goesOut(n)) continue;
     const line = n.lines?.end ?? state.symbols.find((s) => s.id === n.symbolId)?.range?.start ?? null;
-    if (line == null) continue;
+    if (!n.file || line == null) {
+      comments.push({ noteId: n.id, number: n.number, path: null, line: 0, startLine: null, side: "RIGHT", body: commentBody(n), inline: false });
+      continue;
+    }
     const side = n.side === "old" ? "LEFT" : "RIGHT";
     if (!cache.has(n.file)) cache.set(n.file, diffLines(root, review, n.file));
     const lines = cache.get(n.file)!;
@@ -92,13 +73,15 @@ export function draft(root: string, state: ReviewState, overrides: { event?: Dra
   if (!body) body = defaultBody(state, comments);
   const outside = comments.filter((c) => !c.inline);
   if (outside.length) {
-    body += "\n\n" + outside.map((c) => `**${c.path}:${c.startLine ? `${c.startLine}-` : ""}${c.line}**\n\n${c.body}`).join("\n\n---\n\n");
+    body += "\n\n" + outside.map((c) => (c.path ? `**${where(c)}**\n\n${c.body}` : c.body)).join("\n\n---\n\n");
   }
 
   const repo = review.pr ? review.repo : null;
-  const markdown = [body, ...comments.filter((c) => c.inline).map((c) => `**${c.path}:${c.startLine ? `${c.startLine}-` : ""}${c.line}**\n\n${c.body}`)].join("\n\n---\n\n");
+  const markdown = [body, ...comments.filter((c) => c.inline).map((c) => `**${where(c)}**\n\n${c.body}`)].join("\n\n---\n\n");
   return { event, body, comments, target: review.pr ? { pr: review.pr, repo } : null, markdown };
 }
+
+const where = (c: DraftComment) => `${c.path}:${c.startLine ? `${c.startLine}-` : ""}${c.line}`;
 
 function defaultBody(state: ReviewState, comments: DraftComment[]): string {
   const findings = state.notes.filter((n) => goesOut(n) && n.kind === "finding");
@@ -140,10 +123,16 @@ export function publish(state: ReviewState, d: Draft, opts: { force?: boolean } 
     event: d.event,
     body: d.body,
     comments: d.comments
-      .filter((c) => c.inline)
+      .filter((c): c is DraftComment & { path: string } => c.inline && c.path !== null)
       .map((c) => ({ path: c.path, line: c.line, side: c.side, ...(c.startLine ? { start_line: c.startLine, start_side: c.side } : {}), body: c.body })),
   };
   const out = gh(["api", "-X", "POST", `repos/${d.target.repo}/pulls/${review.pr}/reviews`, "--input", "-"], { account: review.account, input: JSON.stringify(payload) });
   const res = JSON.parse(out) as { html_url: string };
   return { url: res.html_url, comments: payload.comments.length };
+}
+
+/** Posts a comment drafted for another pull request (or issue) as the review's account. Returns its URL. */
+export function postComment(review: Review, post: Post): string {
+  const out = gh(["api", "-X", "POST", `repos/${post.repo}/issues/${post.number}/comments`, "--input", "-"], { account: review.account, input: JSON.stringify({ body: post.body }) });
+  return (JSON.parse(out) as { html_url: string }).html_url;
 }
