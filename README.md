@@ -1,6 +1,8 @@
 # Downstream
 
-Too many pull requests to review? Downstream shows which one to review first, and Claude Code helps you review it.
+**The PR review tool for when agents open more pull requests than you can review.**
+
+Downstream shows which one to review first, and Claude Code helps you review it.
 
 Pull requests pile up across repositories, a diff lists files alphabetically, and whatever your agent figured out about a change scrolls away with the chat. Downstream gives you one page of what needs you, opens each change at the place it starts, and keeps your agent next to the code while you read. You agree on a review together, and the review goes to the pull request in your words.
 

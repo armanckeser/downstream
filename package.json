@@ -2,7 +2,7 @@
   "name": "@armanckeser/downstream",
   "version": "0.2.0",
   "license": "MIT",
-  "description": "Too many pull requests to review? Downstream shows which one to review first, and Claude Code helps you review it.",
+  "description": "The PR review tool for when agents open more pull requests than you can review. Downstream shows which one to review first, and Claude Code helps you review it.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/armanckeser/downstream.git"
