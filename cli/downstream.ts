@@ -6,10 +6,10 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync, openSync, readdirSy
 import { homedir } from "node:os";
 import path from "node:path";
 import net from "node:net";
-import { fileURLToPath } from "node:url";
+import { codeRoot, install, packageRoot, serverEntry } from "../server/install.ts";
 import { severityLabel, type CodeSymbol, type Edge, type Note, type ReviewEvent, type ReviewState } from "../domain/model.ts";
 
-const skillDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const skillDir = packageRoot;
 const argv = process.argv.slice(2);
 const cmd = argv[0] ?? "help";
 // Under the 300s headers timeout of Node's fetch.
@@ -96,7 +96,7 @@ function newest(dir: string): number {
 
 /** Newest change to the server's own code, so an updated skill restarts a stale server. */
 function codeVersion(): number {
-  return Math.max(newest(path.join(skillDir, "server")), newest(path.join(skillDir, "domain")));
+  return Math.max(newest(path.join(codeRoot, "server")), newest(path.join(codeRoot, "domain")));
 }
 
 function freePort(start: number): Promise<number> {
@@ -108,6 +108,8 @@ function freePort(start: number): Promise<number> {
 }
 
 function ensureBuilt() {
+  // A published copy ships its dependencies and built UI; it has no sources to build from.
+  if (install === "published") return;
   if (!existsSync(path.join(skillDir, "node_modules", "hono"))) {
     console.error("downstream: installing dependencies (first run)…");
     execFileSync("npm", ["install", "--no-audit", "--no-fund"], { cwd: skillDir, stdio: "inherit", shell: process.platform === "win32" });
@@ -137,7 +139,7 @@ async function ensureServer(): Promise<string> {
   const log = openSync(path.join(homeDir, "server.log"), "a");
   const child = spawn(
     process.execPath,
-    ["--no-warnings=ExperimentalWarning", path.join(skillDir, "server", "main.ts"), `--port=${port}`],
+    ["--no-warnings=ExperimentalWarning", serverEntry, `--port=${port}`],
     { cwd: skillDir, detached: true, stdio: ["ignore", log, log], windowsHide: true },
   );
   child.unref();

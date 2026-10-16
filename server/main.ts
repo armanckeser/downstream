@@ -6,7 +6,6 @@ import { serve } from "@hono/node-server";
 import { serveStatic } from "@hono/node-server/serve-static";
 import { writeFileSync, rmSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { z } from "zod";
 import type { Author, ReviewEvent } from "../domain/model.ts";
 import { actions, ActionError, type ActionContext } from "./actions.ts";
@@ -14,8 +13,8 @@ import { HomeStore, downstreamHome } from "./home-store.ts";
 import { RepoRegistry, type RepoContext } from "./repos.ts";
 import { AgentHost } from "./agent-host.ts";
 import { homeRoutes } from "./home.ts";
+import { packageRoot } from "./install.ts";
 
-const here = path.dirname(fileURLToPath(import.meta.url));
 const args = Object.fromEntries(
   process.argv
     .slice(2)
@@ -220,7 +219,7 @@ review.get("/wait", async (c) => {
 
 app.route("/r/:repo/api", review);
 
-const dist = path.join(here, "..", "web", "dist");
+const dist = path.join(packageRoot, "web", "dist");
 if (existsSync(dist)) {
   const rel = path.relative(process.cwd(), dist) || ".";
   app.use("/*", serveStatic({ root: rel }));

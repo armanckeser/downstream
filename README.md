@@ -71,6 +71,14 @@ Postgres and Electric would be the agent-first default. A review is short-lived,
 
 ## Install
 
+Run the home page straight from npm, from any directory:
+
+```bash
+npx @armanckeser/downstream home
+```
+
+To let Claude Code drive reviews, install it as a skill instead:
+
 ```bash
 git clone https://github.com/armanckeser/downstream ~/.claude/skills/downstream
 cd ~/.claude/skills/downstream && npm install && npm run build
@@ -98,7 +106,10 @@ npm run build          # the web UI, served by the local server
 npm test               # analyzer tests against throwaway git repos
 npm run typecheck
 DOWNSTREAM_API=http://127.0.0.1:4317 npm run dev:web   # UI with hot reload against a running review
+npm pack               # what npm would publish: the UI and dist/ (the CLI and server compiled to JS)
 ```
+
+A clone runs the TypeScript sources with Node's type stripping. A published copy lives under `node_modules`, where Node won't strip types, so `npm pack` and `npm publish` compile `cli/`, `server/` and `domain/` into `dist/` first (`server/install.ts` picks which one runs).
 
 | Path | What lives there |
 |---|---|

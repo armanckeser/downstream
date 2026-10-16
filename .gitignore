@@ -6,3 +6,5 @@ t1.ts
 .shots/
 docs/.video/
 docs/*.webm
+/dist/
+*.tgz

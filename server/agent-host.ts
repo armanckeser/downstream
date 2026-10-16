@@ -4,15 +4,14 @@
 // isn't read-only waits for your approval there. You can move a session to
 // your terminal at any time: Downstream lets go and `claude --resume` picks it up.
 import { EventEmitter } from "node:events";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { query, type HookInput, type HookJSONOutput, type Query, type SDKMessage, type SDKUserMessage, type PermissionResult } from "@anthropic-ai/claude-agent-sdk";
 import { autoApprove, reachesOthers } from "../domain/approval.ts";
 import type { ActivityBody, AgentStatus, AgentView, Approval } from "../domain/agent.ts";
 import { ghEnv } from "./gh.ts";
+import { packageRoot } from "./install.ts";
 import { newId, now } from "./store.ts";
 
-const skillDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const skillDir = packageRoot;
 const ACTIVITY_LIMIT = 200;
 
 export type StartInput = { key: string; repo: string; pr: number; root: string; account: string; prompt: string; resumeId?: string | null };

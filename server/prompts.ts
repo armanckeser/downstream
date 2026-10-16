@@ -1,10 +1,10 @@
 // The first message of an agent session Downstream starts, by the move you
 // pressed. From there the agent drives Downstream (or the repo) as usual.
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { Item, MoveKind } from "../domain/inbox.ts";
+import { packageRoot } from "./install.ts";
 
-const skillDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const skillDir = packageRoot;
 
 /** What the agent is asked to do, by the move that was pressed. */
 const PROMPTS: Partial<Record<MoveKind, (pr: { number: number; repo: string; url: string }) => string>> = {
