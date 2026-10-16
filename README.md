@@ -1,6 +1,6 @@
 # Downstream
 
-Review code with your agent, in the order it runs.
+Get through the pull requests waiting on you, and understand every one you approve. Claude Code reads alongside you.
 
 Pull requests pile up across repositories, a diff lists files alphabetically, and whatever your agent figured out about a change scrolls away with the chat. Downstream gives you one page of what needs you, opens each change at the place it starts, and keeps your agent next to the code while you read. You agree on a review together, and the review goes to the pull request in your words.
 
@@ -22,7 +22,7 @@ Each row says the one thing to do: *Review*, *Re-review*, *Merge*, *Address 3 th
 
 Keys: `j`/`k` move, `↵` preview and start, `d` `n` `g` `s` move a row to Do, Next, Delegate or Someday, `u` undo, `o` open on GitHub, `r` refresh. With more than one GitHub account signed in to `gh`, you look through one at a time and the inboxes never mix.
 
-## Read it the way it runs
+## Understand each change
 
 ![The overview: the agent's summary, what needs you, and where the change starts](docs/overview.png)
 

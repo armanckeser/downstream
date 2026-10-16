@@ -2,7 +2,7 @@
   "name": "@armanckeser/downstream",
   "version": "0.2.0",
   "license": "MIT",
-  "description": "Read a change downstream from its entry points, with the agent in the margin.",
+  "description": "Get through the pull requests waiting on you, and understand every one you approve. Claude Code reads alongside you.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/armanckeser/downstream.git"
